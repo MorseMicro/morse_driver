@@ -492,6 +492,18 @@ struct ieee80211_supported_band mors_band_5ghz = {
 
 };
 
+static const struct ieee80211_tpt_blink morse_tpt_blink[] = {
+    { .throughput =   0 *  256, .blink_time = 334 },
+    { .throughput =   1 *  256, .blink_time = 260 },
+    { .throughput =   1 *  512, .blink_time = 220 },
+    { .throughput =   1 * 1024, .blink_time = 190 },
+    { .throughput =   3 * 1024, .blink_time = 170 },
+    { .throughput =   5 * 1024, .blink_time = 150 },
+    { .throughput =  10 * 1024, .blink_time = 130 },
+    { .throughput =  20 * 1024, .blink_time = 110 },
+    { .throughput =  40 * 1024, .blink_time =  80 },
+    { .throughput =  80 * 1024, .blink_time =  50 },
+};
 
 /* Returns true if only STA mode is supported */
 static bool is_sta_mode_only(void)
@@ -6523,6 +6535,11 @@ struct morse *morse_ieee80211_create(size_t priv_size, struct device *dev)
 
 	mors = hw->priv;
 	mors->hw = hw;
+
+    ieee80211_create_tpt_led_trigger(hw,
+                    IEEE80211_TPT_LEDTRIG_FL_CONNECTED,
+                    morse_tpt_blink,
+                    ARRAY_SIZE(morse_tpt_blink));
 
 	return mors;
 }
