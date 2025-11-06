@@ -236,7 +236,9 @@ static void morse_mesh_probe_timer_cb(unsigned long addr)
 static void morse_mesh_probe_timer_cb(struct timer_list *t)
 #endif
 {
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+	struct morse_mesh *mesh = timer_container_of(mesh, t, mesh_probe_timer);
+#elif KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
 	struct morse_mesh *mesh = (struct morse_mesh *)addr;
 #else
 	struct morse_mesh *mesh = from_timer(mesh, t, mesh_probe_timer);
@@ -657,7 +659,11 @@ int morse_mesh_deinit(struct morse_vif *mors_vif)
 {
 	struct morse_mesh *mesh = mors_vif->mesh;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+	timer_delete_sync(&mesh->mesh_probe_timer);
+#else
 	del_timer_sync(&mesh->mesh_probe_timer);
+#endif
 	kfree(mors_vif->mesh);
 
 	return 0;

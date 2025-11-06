@@ -139,8 +139,13 @@ int morse_vendor_ie_process_rx_ies(struct wireless_dev *wdev, const u8 *ies, u16
  */
 static inline u8 *get_elements_from_s1g_beacon(struct ieee80211_ext *bcn)
 {
-	return (ieee80211_is_s1g_short_beacon(bcn->frame_control) ?
-		bcn->u.s1g_short_beacon.variable : bcn->u.s1g_beacon.variable);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+	return (u8 *)bcn->u.s1g_beacon.variable;
+#else
+	return ieee80211_is_s1g_short_beacon(bcn->frame_control)
+           ? (u8 *)bcn->u.s1g_short_beacon.variable
+           : (u8 *)bcn->u.s1g_beacon.variable;
+#endif
 }
 
 /**

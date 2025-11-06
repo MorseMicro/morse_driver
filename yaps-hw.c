@@ -182,14 +182,22 @@ static void morse_yaps_fill_aux_data_from_hw_tbl(struct morse_yaps_hw_aux_data *
 static inline u8 morse_yaps_crc(u32 word)
 {
 	u8 crc = 0;
-	int len = sizeof(word);
+	u8 buf[4];
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
+	int i;
+#endif
 
 	/* Mask to look at only non-crc bits in both metadata word and delimiters */
 	word &= 0x1ffffff;
-	while (len--) {
-		crc = crc7_be_byte(crc, (word >> 24) & 0xff);
-		word <<= 8;
-	}
+	memcpy(buf, &word, sizeof(buf));
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
+	for (i = 0; i < sizeof(buf); i++)
+		crc = crc7_be_byte(crc, buf[i]);
+#else
+	crc = crc7_be(crc, buf, sizeof(buf));
+#endif
+
 	return crc >> 1;
 }
 

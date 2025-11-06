@@ -526,7 +526,11 @@ int morse_dot11_insert_ordered_ies_from_ies_mask(struct sk_buff *skb, u8 *pos,
 	if (!ies_mask)
 		return 0;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+	if (!ieee80211_is_s1g_beacon(frame_control) ||
+#else
 	if (ieee80211_is_s1g_short_beacon(frame_control) ||
+#endif
 	    (le16_to_cpu(frame_control) & IEEE80211_FC_COMPRESS_SSID)) {
 		ies_order_table = morse_ext_s1g_short_beacon_ies_order;
 		ies_order_table_len = ARRAY_SIZE(morse_ext_s1g_short_beacon_ies_order);

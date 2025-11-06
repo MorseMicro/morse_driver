@@ -181,8 +181,13 @@ int morse_watchdog_init(struct morse *mors, uint interval_s,
 {
 	int ret = 0;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+	hrtimer_setup(&mors->watchdog.timer, &morse_watchdog_fire, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+#else
+
 	hrtimer_init(&mors->watchdog.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	mors->watchdog.timer.function = &morse_watchdog_fire;
+#endif
 
 	mors->watchdog.interval_secs = interval_s;
 	mors->watchdog.ping = ping;

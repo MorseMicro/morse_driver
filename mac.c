@@ -2707,7 +2707,9 @@ static void morse_chswitch_timer(unsigned long addr)
 static void morse_chswitch_timer(struct timer_list *t)
 #endif
 {
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+	struct morse_vif *mors_vif = timer_container_of(mors_vif, t, chswitch_timer);
+#elif KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
 	struct morse_vif *mors_vif = (struct morse_vif *)addr;
 #else
 	struct morse_vif *mors_vif = from_timer(mors_vif, t, chswitch_timer);
@@ -3194,8 +3196,11 @@ static void morse_mac_ops_remove_interface(struct ieee80211_hw *hw, struct ieee8
 		MORSE_ERR(mors, "morse_cmd_rm_if failed %d", ret);
 		goto exit;
 	}
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+	timer_delete_sync(&mors_vif->chswitch_timer);
+#else
 	del_timer_sync(&mors_vif->chswitch_timer);
+#endif
 	flush_delayed_work(&mors_vif->ecsa_chswitch_work);
 
 	/* If data TX is stopped, the LMAC will eventually send the
@@ -3469,8 +3474,11 @@ static int morse_mac_change_channel(struct ieee80211_hw *hw)
 
 	return ret;
 }
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+static int morse_mac_ops_config(struct ieee80211_hw *hw, int radio_idx, u32 changed)
+#else
 static int morse_mac_ops_config(struct ieee80211_hw *hw, u32 changed)
+#endif
 {
 	int err = 0;
 	struct morse *mors = hw->priv;
@@ -3540,7 +3548,11 @@ exit:
 }
 
 /* Return Tx power only when channel is configured and is the same as one in hw->conf */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+static int morse_mac_ops_get_txpower(struct ieee80211_hw *hw, struct ieee80211_vif *vif, unsigned int link_id, int *dbm)
+#else
 static int morse_mac_ops_get_txpower(struct ieee80211_hw *hw, struct ieee80211_vif *vif, int *dbm)
+#endif
 {
 	int err;
 	struct morse *mors = hw->priv;
@@ -4290,20 +4302,13 @@ void morse_mac_update_ibss_node_capabilities(struct ieee80211_hw *hw,
 /* API to process the bandwidth change notification from mac80211 */
 static void morse_mac_ops_sta_rc_update(struct ieee80211_hw *hw,
 					struct ieee80211_vif *vif,
-#if KERNEL_VERSION(6, 13, 0) > MAC80211_VERSION_CODE
 					struct ieee80211_sta *sta,
-#else
-					struct ieee80211_link_sta *link_sta,
-#endif
 					u32 changed)
 {
 	struct morse *mors;
 #ifdef CONFIG_MORSE_RC
 	enum ieee80211_sta_state old_state;
 	enum ieee80211_sta_state new_state;
-#endif
-#if KERNEL_VERSION(6, 13, 0) <= MAC80211_VERSION_CODE
-	struct ieee80211_sta *sta = link_sta->sta;
 #endif
 
 	if (!hw || !vif || !sta)
@@ -4339,6 +4344,20 @@ static void morse_mac_ops_sta_rc_update(struct ieee80211_hw *hw,
 	mutex_unlock(&mors->lock);
 #endif
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,13,0)
+static void morse_link_sta_rc_update_compat(struct ieee80211_hw *hw,
+                                            struct ieee80211_vif *vif,
+                                            struct ieee80211_link_sta *link_sta,
+                                            u32 changed)
+{
+    if (!link_sta)
+        return;
+
+    /* link_sta always has a back-reference to the station */
+    morse_mac_ops_sta_rc_update(hw, vif, link_sta->sta, changed);
+}
+#endif
 
 static int
 morse_mac_ops_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
@@ -4891,7 +4910,18 @@ static int morse_mac_join_ibss(struct ieee80211_hw *hw, struct ieee80211_vif *vi
 		 * packets.
 		 */
 		changed |= IEEE80211_CONF_CHANGE_CHANNEL;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+		int idx;
+		struct ieee80211_vif *vif_tmp;
+		for (idx = 0; idx < mors->max_vifs; idx++) {
+			vif_tmp = morse_get_vif_from_vif_id(mors, idx);
+				if (!vif_tmp)
+					continue;
+			morse_mac_ops_config(hw, idx, changed);
+		}
+#else
 		morse_mac_ops_config(hw, changed);
+#endif
 	}
 
 	memcpy(bssid, vif->bss_conf.bssid, ETH_ALEN);
@@ -4927,7 +4957,11 @@ static void morse_mac_leave_ibss(struct ieee80211_hw *hw, struct ieee80211_vif *
 	mutex_unlock(&mors->lock);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+static int morse_mac_set_frag_threshold(struct ieee80211_hw *hw, int radio_idx, u32 value)
+#else
 static int morse_mac_set_frag_threshold(struct ieee80211_hw *hw, u32 value)
+#endif
 {
 	int ret = -EINVAL;
 	struct morse *mors = hw->priv;
@@ -4941,7 +4975,11 @@ static int morse_mac_set_frag_threshold(struct ieee80211_hw *hw, u32 value)
 	return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+static int morse_mac_set_rts_threshold(struct ieee80211_hw *hw, int radio_idx, u32 value)
+#else
 static int morse_mac_set_rts_threshold(struct ieee80211_hw *hw, u32 value)
+#endif
 {
 	/* When Minstrel is not used, Linux checks if .set_rts_threshold is registered.
 	 * MMRC follows Minstrel to apply RTS on retry rates so does not use this function.
@@ -5076,7 +5114,7 @@ static struct ieee80211_ops mors_ops = {
 #if KERNEL_VERSION(6, 13, 0) > MAC80211_VERSION_CODE
 	.sta_rc_update = morse_mac_ops_sta_rc_update,
 #else
-	.link_sta_rc_update = morse_mac_ops_sta_rc_update,
+	.link_sta_rc_update = morse_link_sta_rc_update_compat,
 #endif
 	.set_frag_threshold = morse_mac_set_frag_threshold,
 	.set_rts_threshold = morse_mac_set_rts_threshold,
@@ -6490,8 +6528,11 @@ exit:
 	morse_ps_enable(mors);
 	return ret;
 }
-
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+static void morse_stale_tx_status_timer(struct timer_list *t)
+{
+	struct morse *mors = timer_container_of(mors, t, stale_status.timer);
+#elif KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
 static void morse_stale_tx_status_timer(unsigned long addr)
 {
 	struct morse *mors = (struct morse *)addr;
@@ -6538,8 +6579,11 @@ static int morse_stale_tx_status_timer_finish(struct morse *mors)
 		return 0;
 
 	mors->stale_status.enabled = 0;
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+	timer_delete_sync(&mors->stale_status.timer);
+#else
 	del_timer_sync(&mors->stale_status.timer);
+#endif
 
 	return 0;
 }

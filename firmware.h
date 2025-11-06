@@ -32,6 +32,8 @@
 #error "Capability subset filled by firmware is to big"
 #endif
 
+enum morse_config_test_mode;
+
 enum morse_fw_info_tlv_type {
 	MORSE_FW_INFO_TLV_BCF_ADDR = 1,
 	MORSE_FW_INFO_TLV_COREDUMP_MEM_REGION = 2,
@@ -146,7 +148,7 @@ struct extended_host_table {
 	u8 ext_host_table_data_tlvs[];
 } __packed;
 
-int morse_firmware_init(struct morse *mors, uint test_mode);
+int morse_firmware_init(struct morse *mors, enum morse_config_test_mode test_mode);
 
 /**
  * @brief Do necessary preparation and then initialise firmware

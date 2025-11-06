@@ -182,7 +182,9 @@ static void cac_timer(unsigned long addr)
 static void cac_timer(struct timer_list *t)
 #endif
 {
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+	struct morse_cac *cac = timer_container_of(cac, t, timer);
+#elif KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
 	struct morse_cac *cac = (struct morse_cac *)addr;
 #else
 	struct morse_cac *cac = from_timer(cac, t, timer);
@@ -231,8 +233,11 @@ int morse_cac_deinit(struct morse_vif *mors_vif)
 	if (!mors_vif->ap)
 		return 0;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+	timer_delete_sync(&cac->timer);
+#else
 	del_timer_sync(&cac->timer);
-
+#endif
 	return 0;
 }
 

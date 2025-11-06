@@ -14,9 +14,7 @@
 #include "wiphy.h"
 #include "vendor.h"
 #include "mesh.h"
-#ifdef CONFIG_ANDROID
 #include "apf.h"
-#endif
 
 /** Extra overhead to account for any additional netlink framing */
 #define VENDOR_EVENT_OVERHEAD			(30)

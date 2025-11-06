@@ -84,7 +84,11 @@ static int yaps_irq_handler(struct morse *mors, u32 status)
 
 	if (test_bit(MORSE_INT_YAPS_FC_PACKET_FREED_UP_IRQN, (unsigned long *)&status)) {
 		/* No need for the timer anymore */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+		timer_delete_sync(&mors->chip_if->yaps->chip_queue_full.timer);
+#else
 		del_timer_sync(&mors->chip_if->yaps->chip_queue_full.timer);
+#endif
 		set_bit(MORSE_TX_PACKET_FREED_UP_PEND, &mors->chip_if->event_flags);
 	}
 
@@ -662,7 +666,11 @@ int morse_yaps_get_tx_buffered_count(struct morse *mors)
 	return count;
 }
 
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+static void morse_tx_chip_full_timer(struct timer_list *t)
+{
+	struct morse_yaps *yaps = timer_container_of(yaps, t, chip_queue_full.timer);
+#elif KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
 static void morse_tx_chip_full_timer(unsigned long addr)
 {
 	struct morse_yaps *yaps = (struct morse_yaps *)addr;
@@ -695,8 +703,11 @@ static int morse_tx_chip_full_timer_init(struct morse_yaps *yaps)
 
 static int morse_tx_chip_full_timer_finish(struct morse_yaps *yaps)
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+	timer_delete_sync(&yaps->chip_queue_full.timer);
+#else
 	del_timer_sync(&yaps->chip_queue_full.timer);
-
+#endif
 	return 0;
 }
 

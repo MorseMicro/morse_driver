@@ -90,7 +90,10 @@ static void morse_rc_timer(unsigned long addr)
 static void morse_rc_timer(struct timer_list *t)
 #endif
 {
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+	struct morse_rc *mrc = timer_container_of(mrc, t, timer);
+	struct morse *mors = mrc->mors;
+#elif KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
 	struct morse *mors = (struct morse *)addr;
 #else
 	struct morse_rc *mrc = from_timer(mrc, t, timer);
@@ -124,7 +127,11 @@ int morse_rc_init(struct morse *mors)
 int morse_rc_deinit(struct morse *mors)
 {
 	cancel_work_sync(&mors->mrc.work);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+        timer_delete_sync(&mors->mrc.timer);
+#else
 	del_timer_sync(&mors->mrc.timer);
+#endif
 
 	return 0;
 }

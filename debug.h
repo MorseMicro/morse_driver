@@ -156,7 +156,7 @@ extern uint debug_mask;
  *
  * @returns	True if output would be generated and false otherwise.
  */
-bool morse_log_is_enabled(u32 id, u8 level);
+bool morse_log_is_enabled(enum morse_feature_id id, u8 level);
 
 /**
  * Set the default logging level for all features.

@@ -1012,7 +1012,11 @@ out:
 	return ret;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
+static int morse_wiphy_set_wiphy_params(struct wiphy *wiphy, int radio_idx, u32 changed)
+#else
 static int morse_wiphy_set_wiphy_params(struct wiphy *wiphy, u32 changed)
+#endif
 {
 	struct morse *mors = wiphy_priv(wiphy);
 	int ret = 0;

@@ -155,6 +155,7 @@ morse-y += coredump.o
 morse-y += peer.o
 morse-y += led.o
 morse-y += bss_stats.o
+morse-y += apf.o
 morse-$(CONFIG_MORSE_MONITOR) += monitor.o
 morse-$(CONFIG_MORSE_SDIO) += sdio.o
 morse-$(CONFIG_MORSE_SPI) += spi.o
@@ -164,7 +165,6 @@ morse-$(CONFIG_MORSE_USER_ACCESS) += uaccess.o
 morse-$(CONFIG_MORSE_HW_TRACE) += hw_trace.o
 morse-$(CONFIG_MORSE_PAGESET_TRACE) += pageset_trace.o
 morse-$(CONFIG_MORSE_BUS_TRACE) += bus_trace.o
-morse-$(CONFIG_ANDROID) += apf.o
 
 ifeq ($(CONFIG_DISABLE_MORSE_RC),y)
 	morse-y += minstrel_rc.o

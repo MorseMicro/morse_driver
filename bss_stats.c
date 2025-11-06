@@ -152,7 +152,9 @@ static void morse_bss_stats_timer_cb(unsigned long addr)
 static void morse_bss_stats_timer_cb(struct timer_list *t)
 #endif
 {
-#if KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
+	struct morse_bss_stats_context *bss_stats = timer_container_of(bss_stats, t, timer);
+#elif KERNEL_VERSION(4, 14, 0) > LINUX_VERSION_CODE
 	struct morse_bss_stats_context *bss_stats = (struct morse_bss_stats_context *)addr;
 #else
 	struct morse_bss_stats_context *bss_stats = from_timer(bss_stats, t, timer);
@@ -465,7 +467,11 @@ int morse_bss_stats_pause(struct morse_vif *mors_vif)
 
 	/* disable and stop the stats timer */
 	bss_stats->paused = true;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+	timer_delete_sync(&bss_stats->timer);
+#else
 	del_timer_sync(&bss_stats->timer);
+#endif
 
 	return 0;
 }
@@ -523,7 +529,11 @@ int morse_cmd_process_bss_stats_conf(struct morse_vif *mors_vif,
 		mod_timer(&bss_stats->timer,
 			jiffies + msecs_to_jiffies(bss_stats->monitor_window_ms));
 	else
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+		timer_delete_sync(&bss_stats->timer);
+#else
 		del_timer_sync(&bss_stats->timer);
+#endif
 
 	return 0;
 }
@@ -573,5 +583,9 @@ void morse_bss_stats_deinit(struct morse_vif *mors_vif)
 
 	bss_stats = &mors_vif->ap->bss_stats;
 	morse_bss_stats_remove_all(mors_vif, bss_stats);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+	timer_delete_sync(&bss_stats->timer);
+#else
 	del_timer_sync(&bss_stats->timer);
+#endif
 }

@@ -16,6 +16,7 @@
 #define MORSE_APF_WARN(_m, _f, _a...)		morse_warn(FEATURE_ID_APF, _m, _f, ##_a)
 #define MORSE_APF_ERR(_m, _f, _a...)		morse_err(FEATURE_ID_APF, _m, _f, ##_a)
 
+#ifdef CONFIG_ANDROID
 struct nla_policy morse_apf_nla_policy[VENDOR_ATTR_PACKET_FILTER_MAX] = {
 	[VENDOR_ATTR_PACKET_FILTER_VERSION] = { .type = NLA_U32},
 	[VENDOR_ATTR_PACKET_FILTER_MAX_LENGTH] = { .type = NLA_U32},
@@ -210,3 +211,29 @@ exit:
 	kfree(program);
 	return ret;
 }
+#else
+int morse_vendor_cmd_get_supported_feature_set(struct wiphy *wiphy,
+		struct wireless_dev *wdev, const void *data, int data_len)
+{
+	return -EOPNOTSUPP;
+}
+
+int morse_vendor_cmd_apf_get_capabilities(struct wiphy *wiphy,
+		struct wireless_dev *wdev, const void *data, int data_len)
+{
+	return -EOPNOTSUPP;
+}
+
+int morse_vendor_cmd_apf_set_packet_filter(struct wiphy *wiphy,
+		struct wireless_dev *wdev, const void *data, int data_len)
+{
+	return -EOPNOTSUPP;
+}
+
+int morse_vendor_cmd_apf_read_packet_filter_data(struct wiphy *wiphy,
+		struct wireless_dev *wdev, const void *data, int data_len)
+{
+	return -EOPNOTSUPP;
+}
+
+#endif /* CONFIG_ANDROID */
