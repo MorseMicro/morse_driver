@@ -1511,7 +1511,18 @@ static int morse_spi_probe(struct spi_device *spi)
 #ifdef SPI_CONTROLLER_ENABLE_CS_GPIOD
 	spi->controller->flags |= SPI_CONTROLLER_ENABLE_CS_GPIOD;
 #else
-#warning "SPI_CONTROLLER_ENABLE_CS_GPIOD macro not defined"
+	/*
+	 * SPI_CONTROLLER_ENABLE_CS_GPIOD is a vendor-kernel flag and does not
+	 * exist upstream. Kernels without it already force SPI_CS_HIGH for a
+	 * cs-gpios device and let gpiolib apply the active-low inversion once,
+	 * which is the behaviour the flag was there to obtain, so there is
+	 * nothing to do here.
+	 *
+	 * This was a #warning, and ccflags-y carries -Werror, so it was fatal
+	 * rather than advisory: the driver did not build at all on such a
+	 * kernel -- including raspberrypi/linux 6.6.51, which does not define
+	 * the macro either.
+	 */
 #endif
 #endif
 	morse_spi_xfer_init(mspi);
