@@ -150,6 +150,18 @@ struct uaccess *morse_spi_uaccess;
 
 #define SPI_DEFAULT_INTER_BLOCK_DELAY_NANO_S	(40000)
 
+/*
+ * Floor for every inter-transaction delay, in bytes clocked on the bus.
+ *
+ * The delays below are derived from a time and then converted to a byte count
+ * using the SPI clock. That is the wrong model: the chip needs a fixed number of
+ * clocks, not a fixed interval. 40 us is 250 bytes at 50 MHz but only 50 bytes at
+ * 10 MHz, and 50 does not work -- measured on an MM6108 over spi-bcm2835, where
+ * 250 succeeds and 50 fails at the same 40 us. Without this floor the driver
+ * happens to be correct only at full clock.
+ */
+#define SPI_MIN_DELAY_BYTES		(250)
+
 /* Value to indicate that the base address for bulk/register read/writes has yet to be set */
 #define MORSE_SPI_BASE_ADDR_UNSET 0xFFFFFFFF
 
@@ -608,7 +620,9 @@ static int morse_spi_cmd53_read(struct morse_spi *mspi, u8 fn, u32 address, u8 *
 
 	if (!block) {
 		/* Scale bytes delay to block */
-		u32 extra_bytes = (count * mspi->inter_block_delay_bytes) / MMC_SPI_BLOCKSIZE;
+		u32 extra_bytes = max_t(u32, SPI_MIN_DELAY_BYTES,
+					(count * mspi->inter_block_delay_bytes) /
+					MMC_SPI_BLOCKSIZE);
 
 		/* Allow 4 bytes for CRC and another 10 bytes for start block token & chip delays
 		 * (usually comes in 2).
@@ -738,9 +752,9 @@ static int morse_spi_cmd53_write(struct morse_spi *mspi, u8 fn, u32 address, u8 
 
 		/* Allow more bytes for status and chip processing (depends on CLK) */
 		if (block)
-			cp += mspi->inter_block_delay_bytes;
+			cp += max_t(u32, SPI_MIN_DELAY_BYTES, mspi->inter_block_delay_bytes);
 		else
-			cp += spi_post_write_status_bytes;
+			cp += max_t(u32, SPI_MIN_DELAY_BYTES, spi_post_write_status_bytes);
 	}
 
 	if (enable_ext_xtal_init) {
@@ -1169,9 +1183,9 @@ static void morse_spi_set_inter_block_delay(struct morse *mors, bool burst_enabl
 	if (spi_inter_block_delay_bytes)
 		mspi->inter_block_delay_bytes = spi_inter_block_delay_bytes;
 	else
-		mspi->inter_block_delay_bytes =
+		mspi->inter_block_delay_bytes = max_t(u32, SPI_MIN_DELAY_BYTES,
 			mors->cfg->get_spi_inter_block_delay_ns(burst_enabled) /
-			((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8));
+			((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8)));
 
 	mspi->max_block_count =
 		SPI_MAX_TRANSACTION_SIZE /
@@ -1480,9 +1494,9 @@ static int morse_spi_probe(struct spi_device *spi)
 	mspi_data_allocated = true;
 
 	mspi->spi = spi;
-	mspi->inter_block_delay_bytes =
+	mspi->inter_block_delay_bytes = max_t(u32, SPI_MIN_DELAY_BYTES,
 		SPI_DEFAULT_INTER_BLOCK_DELAY_NANO_S /
-		((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8));
+		((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8)));
 
 	morse_spi_reset_base_address(mspi);
 
