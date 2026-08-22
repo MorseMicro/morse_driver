@@ -288,6 +288,35 @@ static void morse_spi_initsequence(struct morse_spi *mspi)
 {
 	struct spi_device *spi = mspi->spi;
 
+	const u32 saved_mode = spi->mode;
+
+	/*
+	 * SPI_NO_CS asks the controller to leave the chip select line alone for
+	 * the transfer, which is exactly what this burst needs.
+	 *
+	 * Flipping SPI_CS_HIGH does not achieve it when the controller uses GPIO
+	 * chip selects. spi_setup() forces SPI_CS_HIGH back on for such a device
+	 * so that gpiolib applies the active-low inversion exactly once, so the
+	 * flip is a no-op: the training clocks go out with the chip *selected*,
+	 * the chip never enters SPI mode, and every response afterwards sits two
+	 * bit times off the byte grid.
+	 */
+	spi->mode |= SPI_NO_CS;
+	if (spi_setup(spi) == 0 && (spi->mode & SPI_NO_CS)) {
+		/* We will send only 0xFF for training */
+		memset(mspi->data, 0xFF, MM610X_BUF_SIZE);
+		morse_spi_xfer(mspi, 18);
+
+		spi->mode = saved_mode;
+		if (spi_setup(spi) != 0)
+			dev_err(&spi->dev, "can't restore SPI mode after init\n");
+		return;
+	}
+
+	/* Controller does not support SPI_NO_CS; fall back to flipping. */
+	spi->mode = saved_mode;
+	spi_setup(spi);
+
 	spi->mode |= SPI_CS_HIGH;
 	if (spi_setup(spi) != 0) {
 		/* Just warn; most cards work without it. */
