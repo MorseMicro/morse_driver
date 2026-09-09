@@ -341,7 +341,7 @@ void morse_beacon_insert_ies(struct morse_vif *mors_vif,
  *
  * All calls inside this function must be atomic as it will be called by the beacon tasklet.
  *
- * @returns TRUE if beacon generated successfully, else error code
+ * @returns TRUE if beacon generated successfully, -ENOENT if no beacon available, else error code
  */
 static int morse_beacon_generate(struct morse_vif *mors_vif, struct sk_buff **bcn_skb,
 			  int long_beacon_dtim_count)
@@ -373,9 +373,13 @@ static int morse_beacon_generate(struct morse_vif *mors_vif, struct sk_buff **bc
 	beacon = MORSE_IEEE_BEACON_GET(mors, vif);
 
 	if (!beacon) {
-		MORSE_BEACON_ERR_RATELIMITED(mors, "%s: ieee80211_beacon_get failed\n", __func__);
+		/* Per ieee80211_beacon_get() contract, NULL is valid: interface
+		 * not running, no beacon assigned, or mid-teardown.
+		 * Returned via -ENOENT so real parse failures below
+		 * are still surfaced as errors.
+		 */
 		morse_dot11ah_ies_mask_free(ies_mask);
-		return -EAGAIN;
+		return -ENOENT;
 	}
 
 	*bcn_skb = beacon;
@@ -503,6 +507,13 @@ static void morse_beacon_tasklet(unsigned long data)
 
 	ret = morse_beacon_generate(mors_vif, &beacon, long_beacon_dtim_count);
 	if (!beacon || ret) {
+		if (ret == -ENOENT) {
+			/* mac80211 had no beacon, skip */
+			MORSE_BEACON_DBG_RATELIMITED(mors,
+					 "%s: no beacon from mac80211, skipping\n",
+					 __func__);
+			return;
+		}
 		MORSE_BEACON_ERR_RATELIMITED(mors, "%s: failed to generate the beacon, ret: %d\n",
 					     __func__, ret);
 		return;

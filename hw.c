@@ -36,7 +36,7 @@ MODULE_PARM_DESC(hw_reload_after_stop,
 "Reload HW after a stop notification. Abort if stop events are less than this seconds apart (-1 to disable)");
 
 /* Re-attach to a running hardware */
-bool reattach_hw __read_mostly = CONFIG_MORSE_REATTACH_HW;
+bool reattach_hw __read_mostly = REATTACH_HW_DEFAULT;
 module_param(reattach_hw, bool, 0644);
 MODULE_PARM_DESC(reattach_hw,
 	"Do not reset hardware state during module exit, attempt to reattach during module init");

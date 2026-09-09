@@ -69,6 +69,15 @@ int morse_ps_wakers_dec(struct morse *mors);
 void morse_ps_bus_activity(struct morse *mors, int timeout_ms);
 
 /**
+ * morse_ps_get_iface_id() - Get interface ID of PS interface.
+ *
+ * @mors: Morse chip instance
+ *
+ * @return id or -1 if not set
+ */
+int morse_ps_get_iface_id(struct morse *mors);
+
+/**
  * morse_ps_iface_down_notify() - Notify power save logic that an interface is going down.
  * @mors: Morse chip instance
  * @mors_vif: Virtual interface being disabled

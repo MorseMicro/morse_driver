@@ -433,6 +433,50 @@ DEFINE_EVENT(morse_u32_evt, wowlan_resume_return,
 #define trace_wowlan_resume(...)
 #define trace_wowlan_resume_return(...)
 #endif /* CONFIG_MORSE_TRACE_SUSPEND */
+
+#ifdef CONFIG_MORSE_TRACE_SKBQ
+DECLARE_EVENT_CLASS(morse_skbq_channel_event,
+	TP_PROTO(enum morse_skb_channel channel, uint event),
+	TP_ARGS(channel, event),
+	TP_STRUCT__entry(SKB_CHAN_ENTRY
+			 __field(uint, event)
+	),
+	TP_fast_assign(SKB_CHAN_ASSIGN;
+		       __entry->event = event;
+	),
+	TP_printk(SKB_CHAN_PR_FMT " %d", SKB_CHAN_PR_ARG, __entry->event)
+);
+
+DEFINE_EVENT(morse_skbq_channel_event, skbq_new_tx,
+	TP_PROTO(enum morse_skb_channel channel, uint event), TP_ARGS(channel, event)
+);
+DEFINE_EVENT(morse_skbq_channel_event, skbq_tx_complete,
+	TP_PROTO(enum morse_skb_channel channel, uint event), TP_ARGS(channel, event)
+);
+DEFINE_EVENT(morse_skbq_channel_event, skbq_await_tx_status,
+	TP_PROTO(enum morse_skb_channel channel, uint event), TP_ARGS(channel, event)
+);
+DEFINE_EVENT(morse_skbq_channel_event, skbq_drop_pending_skb,
+	TP_PROTO(enum morse_skb_channel channel, uint event), TP_ARGS(channel, event)
+);
+DEFINE_EVENT(morse_skbq_channel_event, skbq_drop_stale_tx_status,
+	TP_PROTO(enum morse_skb_channel channel, uint event), TP_ARGS(channel, event)
+);
+DEFINE_EVENT(morse_skbq_channel_event, skbq_tx_status_finish,
+	TP_PROTO(enum morse_skb_channel channel, uint event), TP_ARGS(channel, event)
+);
+DEFINE_EVENT(morse_skbq_channel_event, skbq_tx_status_unknown_channel,
+	TP_PROTO(enum morse_skb_channel channel, uint event), TP_ARGS(channel, event)
+);
+#else
+#define trace_skbq_new_tx(...)
+#define trace_skbq_tx_complete(...)
+#define trace_skbq_await_tx_status(...)
+#define trace_skbq_drop_pending_skb(...)
+#define trace_skbq_drop_stale_tx_status(...)
+#define trace_skbq_tx_status_finish(...)
+#define trace_skbq_tx_status_unknown_channel(...)
+#endif /* CONFIG_MORSE_TRACE_SKBQ */
 #endif
 
 /* we don't want to use include/trace/events */

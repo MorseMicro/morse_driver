@@ -8,7 +8,7 @@ else
 endif
 
 # Set 0 to a version number. This is done to match the Linux expectations
-override MORSE_VERSION = "0-rel_mm8108_2_0_0_2026_Apr_21"
+override MORSE_VERSION = "0-rel_mm6108_2_0_1_2026_Jun_11"
 
 USING_CLANG := $(shell $(CC) -v 2>&1 | grep -c "clang version")
 
@@ -41,6 +41,7 @@ ccflags-$(CONFIG_MORSE_TRACE_PAGESET) += "-DCONFIG_MORSE_TRACE_PAGESET"
 ccflags-$(CONFIG_MORSE_TRACE_RX) += "-DCONFIG_MORSE_TRACE_RX"
 ccflags-$(CONFIG_MORSE_TRACE_HEADLESS) += "-DCONFIG_MORSE_TRACE_HEADLESS"
 ccflags-$(CONFIG_MORSE_TRACE_SUSPEND) += "-DCONFIG_MORSE_TRACE_SUSPEND"
+ccflags-$(CONFIG_MORSE_TRACE_SKBQ) += "-DCONFIG_MORSE_TRACE_SKBQ"
 ccflags-$(CONFIG_ANDROID) += "-DCONFIG_ANDROID"
 
 ifneq ($(CONFIG_BACKPORT_VERSION),)
@@ -69,15 +70,6 @@ ccflags-y += "-DCONFIG_MORSE_POWERSAVE_MODE=$(CONFIG_MORSE_POWERSAVE_MODE)"
 CONFIG_MORSE_SDIO_ALIGNMENT ?= 2
 ccflags-y += "-DCONFIG_MORSE_SDIO_ALIGNMENT=$(CONFIG_MORSE_SDIO_ALIGNMENT)"
 
-# Default enable_wiphy to ENABLE_WIPHY
-CONFIG_MORSE_ENABLE_WIPHY ?= 0
-ccflags-y += "-DCONFIG_MORSE_ENABLE_WIPHY=$(CONFIG_MORSE_ENABLE_WIPHY)"
-
-# Default reattach_hw to REATACH_HW
-CONFIG_MORSE_REATTACH_HW ?= 0
-ccflags-y += "-DCONFIG_MORSE_REATTACH_HW=$(CONFIG_MORSE_REATTACH_HW)"
-
-# Default dhcpc_lease_update_script to DHCPC_LEASE_UPDATE_SCRIPT
 CONFIG_MORSE_DHCPC_LEASE_UPDATE_SCRIPT ?= "/morse/scripts/dhcpc_update.sh"
 ccflags-y += "-DCONFIG_MORSE_DHCPC_LEASE_UPDATE_SCRIPT=\"$(CONFIG_MORSE_DHCPC_LEASE_UPDATE_SCRIPT)\""
 
@@ -117,6 +109,18 @@ else
 	ccflags-y += "-DENABLE_SURVEY_DEFAULT=1"
 endif
 
+ifneq (,$(filter 1 y,$(CONFIG_MORSE_ENABLE_WIPHY)))
+	ccflags-y += "-DENABLE_WIPHY_DEFAULT=1"
+else
+	ccflags-y += "-DENABLE_WIPHY_DEFAULT=0"
+endif
+
+ifneq (,$(filter 1 y,$(CONFIG_MORSE_REATTACH_HW)))
+	ccflags-y += "-DREATTACH_HW_DEFAULT=1"
+else
+	ccflags-y += "-DREATTACH_HW_DEFAULT=0"
+endif
+
 ccflags_trace.o := -I$(src)
 CFLAGS_trace.o := -I$(src)
 
@@ -129,6 +133,7 @@ ifneq ($(MORSE_TRACE_PATH),)
 endif
 
 obj-$(CONFIG_WLAN_VENDOR_MORSE) += morse.o dot11ah/
+obj-$(CONFIG_MORSE_KUNIT_TEST) += tests/
 
 morse-y = mac.o
 morse-y += init.o
@@ -206,3 +211,4 @@ clean:
 	rm -f Module.markers Module.symvers modules.order
 	rm -rf .tmp_versions Modules.symvers
 	make -C ./dot11ah clean
+	make -C ./tests clean

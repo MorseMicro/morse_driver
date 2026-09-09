@@ -1033,4 +1033,57 @@ bool morse_dot11ah_del_mesh_peer(const u8 *peer_mac_addr);
  */
 bool morse_dot11ah_is_page_slicing_enabled_on_bss(u8 *bssid);
 
+/**
+ * morse_dot11ah_listen_interval_to_s1g() - Convert 11n listen interval to S1G.
+ * @li: 11n listen interval value
+ *
+ * Return: S1G encoded listen interval
+ */
+static inline u16 morse_dot11ah_listen_interval_to_s1g(u16 li)
+{
+	u16 s1g_li;
+
+	/* if multiple of 10, directly use 10 scale */
+	if (li > 0x3FFF || li % 10 == 0) {
+		u16 usf = IEEE80211_LI_USF_10 << IEEE80211_S1G_LI_USF_SHIFT;
+
+		s1g_li = li / 10;
+		s1g_li |= usf;
+	} else {
+		s1g_li = li;
+	}
+
+	return s1g_li;
+}
+
+/**
+ * morse_dot11ah_s1g_to_listen_interval() - Convert S1G listen interval to 11n.
+ * @s1g_li: S1G encoded listen interval
+ *
+ * Return: 11n listen interval value
+ */
+static inline u16 morse_dot11ah_s1g_to_listen_interval(u16 s1g_li)
+{
+	u16 usf = (s1g_li & IEEE80211_S1G_LI_USF) >> IEEE80211_S1G_LI_USF_SHIFT;
+	u16 unscaled = s1g_li & IEEE80211_S1G_LI_UNSCALED_INTERVAL;
+	u32 li = unscaled;
+
+	switch (usf) {
+	case IEEE80211_LI_USF_10:
+		li *= 10;
+		break;
+	case IEEE80211_LI_USF_1000:
+		li *= 1000;
+		break;
+	case IEEE80211_LI_USF_10000:
+		li *= 10000;
+		break;
+	default:
+		/* scale factor 1 — no multiplication needed */
+		break;
+	}
+
+	return (u16)min_t(u32, li, U16_MAX);
+}
+
 #endif  /* !_MORSE_DOT11AH_H_ */

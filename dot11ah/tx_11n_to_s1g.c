@@ -251,23 +251,6 @@ static int morse_dot11ah_insert_country_ie(struct dot11ah_ies_mask *ies_mask,
 }
 
 /* APIs to convert the 11n frames coming from Linux to S1G ready to transmit */
-static u16 morse_dot11ah_listen_interval_to_s1g(u16 li)
-{
-	u16 s1g_li;
-
-	/* if multiple of 10, directly use 10 scale */
-	if (li > 0x3FFF || li % 10 == 0) {
-		u16 usf =
-			IEEE80211_LI_USF_10 << IEEE80211_S1G_LI_USF_SHIFT;
-
-		s1g_li = li / 10;
-		s1g_li |= usf;
-	} else {
-		s1g_li = li;
-	}
-
-	return s1g_li;
-}
 
 static void morse_dot11ah_assoc_req_to_s1g(struct ieee80211_vif *vif,
 					struct sk_buff *skb,
@@ -673,15 +656,15 @@ static void morse_dot11ah_blockack_to_s1g(struct ieee80211_vif *vif, struct sk_b
 {
 	struct ieee80211_mgmt *back = (struct ieee80211_mgmt *)skb->data;
 
-	switch (back->u.action.u.addba_req.action_code) {
+	switch (MORSE_ADDBA_ACTION_CODE(back)) {
 	case WLAN_ACTION_ADDBA_REQ:
-		back->u.action.u.addba_req.action_code = WLAN_ACTION_NDP_ADDBA_REQ;
+		MORSE_ADDBA_ACTION_CODE(back) = WLAN_ACTION_NDP_ADDBA_REQ;
 		break;
 	case WLAN_ACTION_ADDBA_RESP:
-		back->u.action.u.addba_req.action_code = WLAN_ACTION_NDP_ADDBA_RESP;
+		MORSE_ADDBA_ACTION_CODE(back) = WLAN_ACTION_NDP_ADDBA_RESP;
 		break;
 	case WLAN_ACTION_DELBA:
-		back->u.action.u.addba_req.action_code = WLAN_ACTION_NDP_DELBA;
+		MORSE_ADDBA_ACTION_CODE(back) = WLAN_ACTION_NDP_DELBA;
 		break;
 	default:
 		break;
@@ -1014,10 +997,10 @@ int morse_dot11_get_mpm_ampe_len(struct sk_buff *skb)
 	u16 cap_info;
 	int ampe_len = 0;
 
-	cap_info = le16_to_cpu(*(__le16 *)mgmt->u.action.u.self_prot.variable);
+	cap_info = le16_to_cpu(*(__le16 *)MORSE_MPM_VARIABLE(mgmt));
 
 	if (cap_info & WLAN_CAPABILITY_PRIVACY) {
-		if (mgmt->u.action.u.self_prot.action_code == WLAN_SP_MESH_PEERING_OPEN) {
+		if (MORSE_MPM_ACTION_CODE(mgmt) == WLAN_SP_MESH_PEERING_OPEN) {
 			u8 *peering_frame_ies = morse_dot11_mpm_frame_ies(mgmt);
 			const u8 *rsn_ie;
 			u16 rsn_caps = 0;
@@ -1032,7 +1015,7 @@ int morse_dot11_get_mpm_ampe_len(struct sk_buff *skb)
 							(rsn_caps & RSN_CAPABILITY_MFPC))
 					ampe_len += AMPE_BLOCK_IGTK_DATA_LEN;
 			}
-		} else if (mgmt->u.action.u.self_prot.action_code == WLAN_SP_MESH_PEERING_CONFIRM) {
+		} else if (MORSE_MPM_ACTION_CODE(mgmt) == WLAN_SP_MESH_PEERING_CONFIRM) {
 			ampe_len = AMPE_BLOCK_SIZE_CONFIRM_FRAME;
 		}
 	}

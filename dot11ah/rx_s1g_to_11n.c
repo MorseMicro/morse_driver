@@ -495,35 +495,6 @@ static u8 *morse_dot11_insert_tim_ie(u8 *pos, const struct dot11ah_ies_mask *ies
 
 /* API's to convert the incoming S1G frames into 11n to pass to Linux */
 
-/* Convert s1g listen interval to 11n listen interval. */
-static u16 morse_dot11ah_s1g_to_listen_interval(u16 s1g_li)
-{
-	u16 usf = (s1g_li & IEEE80211_S1G_LI_USF) >> IEEE80211_S1G_LI_USF_SHIFT;
-	u16 unscaled = s1g_li & IEEE80211_S1G_LI_UNSCALED_INTERVAL;
-	u32 li = unscaled;
-
-	switch (usf) {
-	case IEEE80211_LI_USF_10:
-		li *= 10;
-	break;
-	case IEEE80211_LI_USF_1000:
-		li *= 1000;
-	break;
-	case IEEE80211_LI_USF_10000:
-		li *= 10000;
-	break;
-	default:
-		/* 1 */
-		break;
-	}
-
-	if (li > U16_MAX)
-		dot11ah_info("Listen interval > U16_MAX. Clip to max\n");
-
-	/* clip if needed */
-	return min_t(u16, li, U16_MAX);
-}
-
 static int morse_dot11_required_rx_ies_size(struct dot11ah_ies_mask *ies_mask,
 	bool include_ht_vht, bool include_ssid, bool include_mesh_id, bool check_wmm)
 {
@@ -1529,15 +1500,15 @@ static void morse_dot11ah_s1g_to_blockack(struct ieee80211_vif *vif, struct sk_b
 	if (ieee80211_has_protected(back->frame_control))
 		back = (struct ieee80211_mgmt *)(skb->data + IEEE80211_CCMP_HDR_LEN);
 
-	switch (back->u.action.u.addba_req.action_code) {
+	switch (MORSE_ADDBA_ACTION_CODE(back)) {
 	case WLAN_ACTION_NDP_ADDBA_REQ:
-		back->u.action.u.addba_req.action_code = WLAN_ACTION_ADDBA_REQ;
+		MORSE_ADDBA_ACTION_CODE(back) = WLAN_ACTION_ADDBA_REQ;
 		break;
 	case WLAN_ACTION_NDP_ADDBA_RESP:
-		back->u.action.u.addba_req.action_code = WLAN_ACTION_ADDBA_RESP;
+		MORSE_ADDBA_ACTION_CODE(back) = WLAN_ACTION_ADDBA_RESP;
 		break;
 	case WLAN_ACTION_NDP_DELBA:
-		back->u.action.u.addba_req.action_code = WLAN_ACTION_DELBA;
+		MORSE_ADDBA_ACTION_CODE(back) = WLAN_ACTION_DELBA;
 		break;
 	default:
 		break;
@@ -1597,8 +1568,8 @@ static void morse_dot11ah_s1g_to_mpm_frame(struct ieee80211_vif *vif, struct sk_
 	int ampe_len;
 	u8 *mic_ie;
 
-	/* Verify min size: action frame size + action code(1byte) + capab info(2bytes) */
-	if (length_11n <= 0 || length_11n < IEEE80211_MIN_ACTION_SIZE + 3)
+	/* Verify min size: category + action code + capab info(2 bytes) */
+	if (length_11n <= 0 || length_11n < MORSE_IEEE80211_MIN_ACTION_SIZE_ACTION_CODE + 2)
 		goto exit;
 
 	ampe_len = morse_dot11_get_mpm_ampe_len(skb);

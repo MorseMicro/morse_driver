@@ -24,6 +24,8 @@
 	morse_err_ratelimited(FEATURE_ID_BEACON, _m, _f, ##_a)
 #define MORSE_BEACON_WARN_RATELIMITED(_m, _f, _a...) \
 	morse_warn_ratelimited(FEATURE_ID_BEACON, _m, _f, ##_a)
+#define MORSE_BEACON_DBG_RATELIMITED(_m, _f, _a...) \
+	morse_dbg_ratelimited(FEATURE_ID_BEACON, _m, _f, ##_a)
 
 #if KERNEL_VERSION(6, 0, 0) > MAC80211_VERSION_CODE
 #define MORSE_IEEE_BEACON_GET(mors, vif) ieee80211_beacon_get((mors)->hw, (vif))

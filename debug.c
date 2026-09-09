@@ -405,6 +405,15 @@ static int dump_raw_configs(struct seq_file *file, void *data)
 	return 0;
 }
 
+static int read_restart_count(struct seq_file *file, void *data)
+{
+	struct morse *mors = dev_get_drvdata(file->private);
+
+	seq_printf(file, "%u\n", mors->restart_counter);
+
+	return 0;
+}
+
 #ifdef CONFIG_MORSE_DEBUGFS
 static int read_file_pagesets(struct seq_file *file, void *data)
 {
@@ -1099,6 +1108,9 @@ int morse_init_debug(struct morse *mors)
 	debugfs_create_devm_seqfile(mors->dev, "dump_raw_configs",
 				    mors->debug.debugfs_phy, dump_raw_configs);
 
+	debugfs_create_devm_seqfile(mors->dev, "restarts",
+				    mors->debug.debugfs_phy, read_restart_count);
+
 #ifdef CONFIG_MORSE_DEBUGFS
 	if (mors->chip_if->active_chip_if == MORSE_CHIP_IF_PAGESET)
 		debugfs_create_devm_seqfile(mors->dev, "pagesets",
@@ -1167,6 +1179,7 @@ void morse_deinit_debug(struct morse *mors)
 
 void morse_log_modparams(struct morse *mors)
 {
+#ifdef MODULE
 	size_t i;
 	const struct kernel_param *kp;
 	char *buffer;
@@ -1197,6 +1210,11 @@ void morse_log_modparams(struct morse *mors)
 
 exit:
 	module_put(THIS_MODULE);
+#else
+	/* Built-in KUnit/UML builds do not expose module parameter state. */
+	(void)mors;
+	return;
+#endif
 }
 
 #ifdef CONFIG_MORSE_IPMON

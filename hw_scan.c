@@ -5,6 +5,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/kernel.h>
+#include "linux/workqueue.h"
 #include "morse.h"
 #include "debug.h"
 #include "mac.h"
@@ -1199,7 +1200,7 @@ int morse_ops_hw_scan(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		break;
 	case HW_SCAN_STATE_IDLE:
 		mors->hw_scan.state = HW_SCAN_STATE_RUNNING;
-		reinit_completion(&mors->hw_scan.scan_done);
+		reinit_completion(&mors->hw_scan.scan_done.complete);
 		break;
 	case HW_SCAN_STATE_RUNNING:
 	case HW_SCAN_STATE_ABORTING:
@@ -1310,7 +1311,7 @@ static void cancel_hw_scan(struct morse *mors)
 	if (ret ||
 	    !morse_mlme_is_started(mors) ||
 	    morse_mlme_in_reconfig(mors) ||
-	    !wait_for_completion_timeout(&mors->hw_scan.scan_done, 1 * HZ)) {
+	    !wait_for_completion_timeout(&mors->hw_scan.scan_done.complete, 1 * HZ)) {
 		/* We may have lost the event on the bus, the chip could be wedged, or the cmd
 		 * failed for another reason.
 		 * Nevertheless, we should call the done event so mac80211 knows to unblock itself
@@ -1337,9 +1338,8 @@ void morse_ops_cancel_hw_scan(struct ieee80211_hw *hw, struct ieee80211_vif *vif
 	cancel_hw_scan(mors);
 }
 
-void morse_hw_scan_done_event(struct ieee80211_hw *hw)
+static void morse_hw_scan_done_handler(struct morse *mors)
 {
-	struct morse *mors = hw->priv;
 	struct cfg80211_scan_info info = {0};
 
 	mutex_lock(&mors->lock);
@@ -1369,9 +1369,22 @@ void morse_hw_scan_done_event(struct ieee80211_hw *hw)
 
 	ieee80211_scan_completed(mors->hw, &info);
 exit:
-	complete(&mors->hw_scan.scan_done);
+	complete(&mors->hw_scan.scan_done.complete);
 	mutex_unlock(&mors->lock);
 	cancel_delayed_work_sync(&mors->hw_scan.timeout);
+}
+
+static void morse_hw_scan_done_work(struct work_struct *work)
+{
+	struct morse *mors = container_of(work, struct morse, hw_scan.scan_done.work);
+
+	MORSE_HWSCAN_INFO(mors, "hw scan: received results\n");
+	morse_hw_scan_done_handler(mors);
+}
+
+void morse_hw_scan_done_event(struct morse *mors)
+{
+	schedule_work(&mors->hw_scan.scan_done.work);
 }
 
 static void morse_hw_scan_timeout_work(struct work_struct *work)
@@ -1388,7 +1401,7 @@ static void morse_hw_scan_replay_scan_end(struct work_struct *work)
 	struct morse *mors = container_of(work, struct morse, hw_scan.replay_end.work);
 
 	MORSE_HWSCAN_DBG(mors, "hw scan: replay scan end\n");
-	morse_hw_scan_done_event(mors->hw);
+	morse_hw_scan_done_handler(mors);
 }
 
 void morse_hw_scan_init(struct morse *mors)
@@ -1398,13 +1411,15 @@ void morse_hw_scan_init(struct morse *mors)
 	mors->hw_scan.default_active_dwell_ms = MORSE_HWSCAN_DEFAULT_DWELL_TIME_MS;
 	mors->hw_scan.home_dwell_ms = MORSE_HWSCAN_DEFAULT_DWELL_ON_HOME_MS;
 
-	init_completion(&mors->hw_scan.scan_done);
+	init_completion(&mors->hw_scan.scan_done.complete);
+	INIT_WORK(&mors->hw_scan.scan_done.work, morse_hw_scan_done_work);
 	INIT_DELAYED_WORK(&mors->hw_scan.timeout, morse_hw_scan_timeout_work);
 	INIT_DELAYED_WORK(&mors->hw_scan.replay_end, morse_hw_scan_replay_scan_end);
 }
 
 void morse_hw_scan_destroy(struct morse *mors)
 {
+	cancel_work_sync(&mors->hw_scan.scan_done.work);
 	cancel_delayed_work_sync(&mors->hw_scan.replay_end);
 	cancel_delayed_work_sync(&mors->hw_scan.timeout);
 	if (mors->hw_scan.params)
@@ -1428,7 +1443,8 @@ void morse_hw_scan_finish(struct morse *mors)
 	else
 		ieee80211_scan_completed(mors->hw, &info);
 
-	complete(&mors->hw_scan.scan_done);
+	cancel_work_sync(&mors->hw_scan.scan_done.work);
+	complete(&mors->hw_scan.scan_done.complete);
 	mors->hw_scan.state = HW_SCAN_STATE_IDLE;
 
 	/* Not using cancel_delayed_work_sync due to lock constraints */
@@ -1466,7 +1482,7 @@ int morse_ops_sched_scan_start(struct ieee80211_hw *hw, struct ieee80211_vif *vi
 	switch (mors->hw_scan.state) {
 	case HW_SCAN_STATE_IDLE:
 		mors->hw_scan.state = HW_SCAN_STATE_SCHED;
-		reinit_completion(&mors->hw_scan.scan_done);
+		reinit_completion(&mors->hw_scan.scan_done.complete);
 		break;
 	case HW_SCAN_STATE_SCHED:
 	case HW_SCAN_STATE_RUNNING:
@@ -1562,7 +1578,7 @@ void morse_hw_stop_sched_scan(struct morse *mors, bool requested)
 	if (ret ||
 	    !morse_mlme_is_started(mors) ||
 	    morse_mlme_in_reconfig(mors) ||
-	    !wait_for_completion_timeout(&mors->hw_scan.scan_done, 1 * HZ)) {
+	    !wait_for_completion_timeout(&mors->hw_scan.scan_done.complete, 1 * HZ)) {
 		/* We may have lost the event on the bus, the chip could be wedged, or the cmd
 		 * failed for another reason.
 		 * Nevertheless, we should return early so mac80211 knows to unblock itself

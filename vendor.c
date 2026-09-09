@@ -167,6 +167,9 @@ static const struct nl80211_vendor_cmd_info morse_vendor_events[] = {
 	[MORSE_VENDOR_EVENT_BSS_STATS] = {
 							.vendor_id = MORSE_OUI,
 							.subcmd = MORSE_VENDOR_EVENT_BSS_STATS },
+	[MORSE_VENDOR_EVENT_HMI] = {
+						    .vendor_id = MORSE_OUI,
+						    .subcmd = MORSE_VENDOR_EVENT_HMI },
 };
 
 void morse_set_vendor_commands_and_events(struct wiphy *wiphy)
@@ -546,6 +549,30 @@ int morse_vendor_send_ocs_done_event(struct ieee80211_vif *vif, struct morse_cmd
 	return ret;
 }
 
+int morse_vendor_send_hmi_event(struct morse *mors,
+								struct morse_cmd_evt_hmi *evt)
+{
+	struct sk_buff *skb;
+	size_t data_size = sizeof(*evt) - sizeof(evt->hdr);
+	int ret;
+
+	skb = cfg80211_vendor_event_alloc(mors->wiphy, NULL,
+					  data_size + VENDOR_EVENT_OVERHEAD,
+					  MORSE_VENDOR_EVENT_HMI, GFP_KERNEL);
+	if (!skb)
+		return -ENOMEM;
+
+	ret = nla_put(skb, MORSE_VENDOR_ATTR_DATA, data_size,
+		      (void *)((char *)evt + sizeof(evt->hdr)));
+	if (ret < 0) {
+		kfree_skb(skb);
+		return ret;
+	}
+
+	cfg80211_vendor_event(skb, GFP_KERNEL);
+	return 0;
+}
+
 int morse_vendor_send_peer_addr_event(struct ieee80211_vif *vif,
 				      struct morse_mesh_peer_addr_vendor_evt *peer_addr_evt)
 {
@@ -606,16 +633,17 @@ int morse_vendor_send_bss_stats_event(struct ieee80211_vif *vif,
 			struct morse_evt_bss_stats *evt, size_t evt_data_len)
 {
 	struct wireless_dev *wdev;
-	struct morse_vif *mors_vif = ieee80211_vif_to_morse_vif(vif);
-	struct morse *mors = morse_vif_to_morse(mors_vif);
+	struct morse_vif *mors_vif;
+	struct morse *mors;
 	struct sk_buff *skb;
 	int ret = 0;
 
 	if (!vif)
 		return -EIO;
 
+	mors_vif = ieee80211_vif_to_morse_vif(vif);
+	mors = morse_vif_to_morse(mors_vif);
 	wdev = ieee80211_vif_to_wdev(vif);
-
 	if (!wdev)
 		return -EIO;
 

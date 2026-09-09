@@ -102,8 +102,12 @@ enum morse_hw_scan_state {
 struct morse_hw_scan {
 	/** Current state of HW scan */
 	enum morse_hw_scan_state state;
-	/** Completion for syncing cancel_hw_scan and actually finishing the scan */
-	struct completion scan_done;
+	struct {
+		/** Completion for syncing cancel_hw_scan and actually finishing the scan */
+		struct completion complete;
+		/** Work to handle scan done events */
+		struct work_struct work;
+	} scan_done;
 	/** Pointer to last command. */
 	struct morse_hw_scan_params *params;
 	/** Work to timeout uncompleted scans */
@@ -236,11 +240,11 @@ size_t morse_hw_scan_get_command_size(struct morse_hw_scan_params *params,
 				      struct cfg80211_sched_scan_request *sched_req);
 
 /**
- * morse_hw_scan_done_event - process a HW scan done event from the firmware
+ * morse_hw_scan_done_event - Schedule the processing of a HW scan done event from the firmware
  *
- * @hw: ieee80211_hw the scan was operating on
+ * @mors: morse context
  */
-void morse_hw_scan_done_event(struct ieee80211_hw *hw);
+void morse_hw_scan_done_event(struct morse *mors);
 
 /**
  * morse_hw_scan_init - Initalise the hw scan structure.

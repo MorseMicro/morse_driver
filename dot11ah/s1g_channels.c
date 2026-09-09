@@ -496,17 +496,72 @@ static const struct morse_dot11ah_ch_map mors_us_map = {
 		.channelization_scheme = CHANNELIZATION_SCHEME_NONE,
 };
 
+static const struct morse_dot11ah_ch_map mors_mx_map = {
+		.alpha = CHANNEL_ALPHA_MX,
+		.prim_1mhz_channel_loc_to_idx = &prim_1mhz_channel_loc_to_idx_default,
+		.calculate_primary_s1g = &calculate_primary_s1g_channel_default,
+		.s1g_op_chan_pri_chan_to_5g = &s1g_op_chan_pri_chan_to_5g_default,
+		.get_pri_1mhz_chan = &get_pri_1mhz_chan_default,
+		.transform_overlapping_5g_chan = NULL,
+		.num_mapped_channels = ARRAY_SIZE(us_s1g_channels),
+		.s1g_channels = us_s1g_channels,
+		.channelization_scheme = CHANNELIZATION_SCHEME_NONE,
+};
+
+/* CL map as per AU REVmf channelization */
+static const struct morse_dot11ah_ch_map mors_cl_map = {
+		.alpha = CHANNEL_ALPHA_CL,
+		.prim_1mhz_channel_loc_to_idx = &prim_1mhz_channel_loc_to_idx_au,
+		.calculate_primary_s1g = &calculate_primary_s1g_channel_au,
+		.s1g_op_chan_pri_chan_to_5g = &s1g_op_chan_pri_chan_to_5g_au,
+		.get_pri_1mhz_chan = &get_pri_1mhz_chan_default,
+		.transform_overlapping_5g_chan = &transform_overlapping_5g_chan_au,
+		.num_mapped_channels = ARRAY_SIZE(au_s1g_channels),
+		.s1g_channels = au_s1g_channels,
+		.channelization_scheme = CHANNELIZATION_SCHEME_IEEE80211_REVMF,
+};
+
+/* AR map as per AU REVmf channelization */
+static const struct morse_dot11ah_ch_map mors_ar_map = {
+		.alpha = CHANNEL_ALPHA_AR,
+		.prim_1mhz_channel_loc_to_idx = &prim_1mhz_channel_loc_to_idx_au,
+		.calculate_primary_s1g = &calculate_primary_s1g_channel_au,
+		.s1g_op_chan_pri_chan_to_5g = &s1g_op_chan_pri_chan_to_5g_au,
+		.get_pri_1mhz_chan = &get_pri_1mhz_chan_default,
+		.transform_overlapping_5g_chan = &transform_overlapping_5g_chan_au,
+		.num_mapped_channels = ARRAY_SIZE(au_s1g_channels),
+		.s1g_channels = au_s1g_channels,
+		.channelization_scheme = CHANNELIZATION_SCHEME_IEEE80211_REVMF,
+};
+
+/* CO map as per AU REVmf channelization */
+static const struct morse_dot11ah_ch_map mors_co_map = {
+		.alpha = CHANNEL_ALPHA_CO,
+		.prim_1mhz_channel_loc_to_idx = &prim_1mhz_channel_loc_to_idx_au,
+		.calculate_primary_s1g = &calculate_primary_s1g_channel_au,
+		.s1g_op_chan_pri_chan_to_5g = &s1g_op_chan_pri_chan_to_5g_au,
+		.get_pri_1mhz_chan = &get_pri_1mhz_chan_default,
+		.transform_overlapping_5g_chan = &transform_overlapping_5g_chan_au,
+		.num_mapped_channels = ARRAY_SIZE(au_s1g_channels),
+		.s1g_channels = au_s1g_channels,
+		.channelization_scheme = CHANNELIZATION_SCHEME_IEEE80211_REVMF,
+};
+
 const struct morse_dot11ah_ch_map *mapped_channels[] = {
+	&mors_ar_map,
 	&mors_au_2020_map,
 	&mors_au_2024_map,
 	&mors_au_map,
 	&mors_br_map,
 	&mors_ca_map,
+	&mors_cl_map,
+	&mors_co_map,
 	&mors_eu_map,
 	&mors_gb_map,
 	&mors_in_map,
 	&mors_jp_map,
 	&mors_kr_map,
+	&mors_mx_map,
 	&mors_nz_map,
 	&mors_sg_map,
 	&mors_us_map,
@@ -597,6 +652,14 @@ static enum morse_dot11ah_region morse_reg_get_region(const char *alpha)
 
 	if (!strcmp(alpha, "US"))
 		return MORSE_US;
+
+	/* Countries using US channelization */
+	if (!strcmp(alpha, "MX"))
+		return MORSE_US;
+
+	/* Countries using AU REVmf channelization */
+	if (!strcmp(alpha, "AR") || !strcmp(alpha, "CL") || !strcmp(alpha, "CO"))
+		return MORSE_AU;
 
 	return REGION_UNSET;
 }

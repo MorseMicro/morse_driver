@@ -291,6 +291,7 @@ int morse_cmd_get_rts_threshold(struct morse *mors, u32 *rts_threshold);
 int morse_cmd_set_rts_threshold(struct morse *mors, u32 rts_threshold);
 int morse_cmd_set_cts_to_self(struct morse *mors, bool enabled);
 int morse_cmd_set_channelization_scheme(struct morse *mors, u32 scheme);
+int morse_cmd_set_autoconnect(struct morse *mors, bool autoconnect);
 int morse_cmd_start_scan(struct morse *mors, u8 n_ssids, const u8 *ssid, size_t ssid_len,
 			 const u8 *extra_ies, size_t extra_ies_len, u32 dwell_time_ms);
 int morse_cmd_abort_scan(struct morse *mors);
@@ -302,6 +303,7 @@ int morse_cmd_get_connection_state(struct morse *mors, s8 *signal,
 int morse_cmd_set_cqm_rssi(struct morse *mors, u16 vif_id, s32 cqm_rssi_thold, u32 cqm_rssi_hyst);
 int morse_cmd_set_crypto_in_host(struct morse *mors, bool enabled);
 int morse_cmd_set_dynamic_ps_timeout(struct morse *mors, unsigned int timeout_ms);
+int morse_cmd_set_pre_assoc_offchan_ps(struct morse *mors, bool allow);
 
 /**
  * morse_cmd_get_apf_capabilities() - Get APF capabilities supported by firmware.

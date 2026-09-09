@@ -63,7 +63,8 @@ enum morse_vendor_events {
 	MORSE_VENDOR_EVENT_OCS_DONE = 1,
 	MORSE_VENDOR_EVENT_MGMT_VENDOR_IE_FOUND = 2,
 	MORSE_VENDOR_EVENT_MESH_PEER_ADDR = 3,
-	MORSE_VENDOR_EVENT_BSS_STATS = 4
+	MORSE_VENDOR_EVENT_BSS_STATS = 4,
+	MORSE_VENDOR_EVENT_HMI = 5,
 };
 
 enum morse_vendor_attributes {
@@ -180,6 +181,16 @@ void morse_set_vendor_commands_and_events(struct wiphy *wiphy);
  */
 int morse_vendor_send_bss_stats_event(struct ieee80211_vif *vif,
 			struct morse_evt_bss_stats *evt, size_t evt_data_len);
+
+/**
+ * Send HMI netlink event
+ *
+ * @mors morse device to send the event on
+ * @evt HMI event
+ * @return 0 on success else error code
+ */
+int morse_vendor_send_hmi_event(struct morse *mors,
+								struct morse_cmd_evt_hmi *evt);
 
 /**
  * morse-vendor_find_vendor_ie()	- Find vendor IE with morse OUI.

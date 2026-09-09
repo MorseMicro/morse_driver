@@ -427,8 +427,6 @@ static struct {
 	ktime_t end;
 	struct completion *handled;
 } irq_profiling = {
-	.start = 0,
-	.end = 0,
 	.handled = NULL
 };
 
@@ -476,7 +474,7 @@ static void morse_bus_interrupt_profiler(struct morse *mors)
 		morse_claim_bus(mors);
 		irq_profiling.handled = NULL;
 		if (ret == 0)
-			irq_delays[i] = 0;
+			irq_delays[i] = ktime_set(0, 0);
 		else
 			irq_delays[i] = ktime_sub(irq_profiling.end, irq_profiling.start);
 		reinit_completion(&irq_handled);
@@ -492,7 +490,7 @@ static void morse_bus_interrupt_profiler(struct morse *mors)
 	for (i = 0; i < rounds; i++) {
 		ktime_t delay = irq_delays[i];
 
-		if (delay == 0)
+		if (ktime_to_ns(delay) == 0)
 			count += snprintf(print_buffer + count,
 					  (PROFILER_TIMING_PRINT_BUFFER_SIZE - count),
 					  " %4s", "?");

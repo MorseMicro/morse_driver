@@ -34,6 +34,8 @@
 #define MORSE_SPI_INFO(_m, _f, _a...)		morse_info(FEATURE_ID_SPI, _m, _f, ##_a)
 #define MORSE_SPI_WARN(_m, _f, _a...)		morse_warn(FEATURE_ID_SPI, _m, _f, ##_a)
 #define MORSE_SPI_ERR(_m, _f, _a...)		morse_err(FEATURE_ID_SPI, _m, _f, ##_a)
+#define MORSE_SPI_ERR_RATELIMITED(_m, _f, _a...) \
+	morse_err_ratelimited(FEATURE_ID_SPI, _m, _f, ##_a)
 
 struct morse_spi {
 	bool enabled;
@@ -132,7 +134,7 @@ struct uaccess *morse_spi_uaccess;
  *
  * Derived using a 50 MHz bus speed, and 32 kHz external crystal oscillator.
  */
-#define XTAL_TRANSFER_DELAY_BYTES	(2 * 1024U)
+#define XTAL_TRANSFER_DELAY_BYTES	(4 * 1024U)
 
 /* SW-5611:
  *
@@ -152,6 +154,10 @@ struct uaccess *morse_spi_uaccess;
 
 /* Value to indicate that the base address for bulk/register read/writes has yet to be set */
 #define MORSE_SPI_BASE_ADDR_UNSET 0xFFFFFFFF
+
+/* At maximum clock (50MHz): 8 bytes = 1.28µs per poll; 200 polls gives a ~256µs ceiling. */
+#define SPI_CHIP_BUSY_POLL_BYTES	8
+#define SPI_CHIP_BUSY_MAX_POLLS	200
 
 #ifdef CONFIG_MORSE_SPI_RK3288
 static const bool is_rk3288 = true;
@@ -511,7 +517,7 @@ static int morse_spi_crc_verify(u8 *data, u32 data_size)
 		return 0;
 
 	MORSE_PR_ERR(FEATURE_ID_SPI,
-		     "%s failed expect 0x%04x found 0x%0x4\n", __func__, crc_val, crc);
+		     "%s failed expect 0x%04x found 0x%04x\n", __func__, crc_val, crc);
 	return -ECOMM;
 }
 
@@ -643,6 +649,38 @@ exit:
 	return -EPROTO;
 }
 
+#if KERNEL_VERSION(6, 0, 0) <= LINUX_VERSION_CODE
+/**
+ * morse_spi_wait_chip_ready() - Poll MISO until the chip is ready after a CMD53 write.
+ * @mspi: Morse SPI structure containing the shared data buffer and SPI transfer state.
+ *
+ * After a CMD53 write the chip holds MISO=0 while committing received data internally.
+ * The SDIO SPI protocol requires MISO to return to 0xFF before the next command is issued.
+ * Clocks %SPI_CHIP_BUSY_POLL_BYTES-byte bursts of 0xFF and scans the received bytes for
+ * 0xFF (MISO released). Repeats up to %SPI_CHIP_BUSY_MAX_POLLS times before giving up.
+ *
+ * @ret: 0 if MISO returned to 0xFF (chip ready), else error code
+ */
+static int morse_spi_wait_chip_ready(struct morse_spi *mspi)
+{
+	int i;
+
+	for (i = 0; i < SPI_CHIP_BUSY_MAX_POLLS; i++) {
+		int j;
+
+		memset(mspi->data, 0xFF, SPI_CHIP_BUSY_POLL_BYTES);
+		if (morse_spi_xfer(mspi, SPI_CHIP_BUSY_POLL_BYTES))
+			return -EIO;
+
+		for (j = 0; j < SPI_CHIP_BUSY_POLL_BYTES; j++) {
+			if (mspi->data[j] == 0xFF)
+				return 0;
+		}
+	}
+	return -ETIMEDOUT;
+}
+#endif
+
 static int morse_spi_cmd53_write(struct morse_spi *mspi, u8 fn, u32 address, u8 *data, u16 count,
 				 u8 block)
 {
@@ -743,6 +781,28 @@ static int morse_spi_cmd53_write(struct morse_spi *mspi, u8 fn, u32 address, u8 
 		if (!cp)
 			goto exit;
 	}
+
+#if KERNEL_VERSION(6, 0, 0) <= LINUX_VERSION_CODE
+	/*
+	 * After the last block's data-response token, the chip holds MISO=0 while
+	 * committing data internally. The next command must not be issued until
+	 * MISO returns to 0xFF.
+	 */
+	while (cp < end && *cp != 0xFF)
+		cp++;
+
+	if (cp == end) {
+		/* Chip still busy past the captured window; poll until MISO returns to 0xFF. */
+
+		if (morse_spi_wait_chip_ready(mspi)) {
+			struct morse *mors = spi_get_drvdata(mspi->spi);
+
+			MORSE_SPI_ERR_RATELIMITED(mors, "%s: Chip busy timeout after CMD53 write\n",
+						  __func__);
+			goto exit;
+		}
+	}
+#endif
 
 	return count;
 
@@ -1247,10 +1307,15 @@ static void morse_spi_set_irq(struct morse *mors, bool enable)
 
 static void morse_spi_reset(int reset_pin, struct spi_device *spi)
 {
+	unsigned int delay_ms = 80;
+
+	if (enable_ext_xtal_init)
+		delay_ms = 100;
+
 	morse_hw_reset(reset_pin);
 
 	/* Introduce a short delay to make sure the chip/SPI controller is fully reset */
-	mdelay(80);
+	mdelay(delay_ms);
 }
 
 #if KERNEL_VERSION(5, 18, 0) > LINUX_VERSION_CODE
@@ -1588,14 +1653,14 @@ static int morse_spi_probe(struct spi_device *spi)
 
 	mutex_lock(&mors->lock);
 	ret = morse_firmware_prepare(mors, reset_hw, morse_hw_should_reattach());
+	if (!ret || ret == -EALREADY)
+		morse_hw_set_state(mors, MORSE_HW_STATE_ON);
 	mutex_unlock(&mors->lock);
 
 	if (ret == -EALREADY)
 		attach = true;
 	else if (ret)
 		goto err_exit;
-
-	morse_hw_set_state(mors, MORSE_HW_STATE_ON);
 	/*
 	 * Now that a valid chip id has been found, let's enable burst mode.
 	 * The function below will check if burst mode is supported and if so, enable it.
@@ -1636,14 +1701,14 @@ static int morse_spi_probe(struct spi_device *spi)
 			MORSE_SPI_ERR(mors, "failed to parse extended host table: %d\n", ret);
 			goto err_exit;
 		}
-	}
 
-	ret = morse_ps_init(mors);
-	if (ret) {
-		MORSE_SPI_ERR(mors, "morse_ps_init failed: %d\n", ret);
-		goto err_exit;
+		ret = morse_ps_init(mors);
+		if (ret) {
+			MORSE_SPI_ERR(mors, "morse_ps_init failed: %d\n", ret);
+			goto err_exit;
+		}
+		ps_initiated = true;
 	}
-	ps_initiated = true;
 
 	/* Enable SPI interrupts before callng ieee80211_register_hw() or morse_wiphy_register */
 	ret = morse_spi_setup_irq(mspi);

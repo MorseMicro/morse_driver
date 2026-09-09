@@ -73,6 +73,12 @@ static inline u32 morse_random_u32_max(u32 max)
 #define EM_RISCV 243
 #endif
 
+#if KERNEL_VERSION(4, 9, 61) < LINUX_VERSION_CODE
+#define morse_in_interrupt() (!in_task())
+#else
+#define morse_in_interrupt() in_interrupt()
+#endif
+
 #if KERNEL_VERSION(6, 7, 0) <= MAC80211_VERSION_CODE
     #define MORSE_IEEE80211_TX_STATUS(_hw, _skb) ieee80211_tx_status_skb(_hw, _skb)
 #else
@@ -99,6 +105,16 @@ static inline u32 morse_random_u32_max(u32 max)
     #define MORSE_IEEE80211_CSA_COMPLETE(_vif)  ieee80211_csa_is_complete(_vif)
 #endif
 
+#if KERNEL_VERSION(7, 0, 0) <= MAC80211_VERSION_CODE
+#define MORSE_ADDBA_ACTION_CODE(_mgmt) ((_mgmt)->u.action.action_code)
+#define MORSE_IEEE80211_MIN_ACTION_SIZE_CATEGORY IEEE80211_MIN_ACTION_SIZE(category)
+#define MORSE_IEEE80211_MIN_ACTION_SIZE_ACTION_CODE IEEE80211_MIN_ACTION_SIZE(action_code)
+#else
+#define MORSE_ADDBA_ACTION_CODE(_mgmt) ((_mgmt)->u.action.u.addba_req.action_code)
+#define MORSE_IEEE80211_MIN_ACTION_SIZE_CATEGORY IEEE80211_MIN_ACTION_SIZE
+#define MORSE_IEEE80211_MIN_ACTION_SIZE_ACTION_CODE (IEEE80211_MIN_ACTION_SIZE + 1)
+#endif
+
 #if KERNEL_VERSION(4, 17, 0) > MAC80211_VERSION_CODE
 /**
  * ieee80211_get_tid - get the QoS TID for a frame
@@ -122,3 +138,7 @@ typedef struct bin_attribute morse_bin_attr_t;
 #endif
 
 #define MORSE_IEEE80211_GET_TID(_hdr) ieee80211_get_tid(_hdr)
+
+#if KERNEL_VERSION(5, 3, 0) > MAC80211_VERSION_CODE
+#define SAE_PASSWORD_MAX_LEN 128
+#endif

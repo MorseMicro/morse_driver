@@ -113,16 +113,24 @@ enum plink_action_field {
 	PLINK_CLOSE
 };
 
+#if KERNEL_VERSION(7, 0, 0) <= MAC80211_VERSION_CODE
+#define MORSE_MPM_ACTION_CODE(_mgmt) ((_mgmt)->u.action.action_code)
+#define MORSE_MPM_VARIABLE(_mgmt) ((_mgmt)->u.action.self_prot.variable)
+#else
+#define MORSE_MPM_ACTION_CODE(_mgmt) ((_mgmt)->u.action.u.self_prot.action_code)
+#define MORSE_MPM_VARIABLE(_mgmt) ((_mgmt)->u.action.u.self_prot.variable)
+#endif
+
 /** Returns true if the frame is mesh peering management (MPM) open frame */
 static inline bool morse_dot11_is_mpm_open_frame(const struct ieee80211_mgmt *mesh_mpm_frm)
 {
-	return (mesh_mpm_frm->u.action.u.self_prot.action_code == WLAN_SP_MESH_PEERING_OPEN);
+	return (MORSE_MPM_ACTION_CODE(mesh_mpm_frm) == WLAN_SP_MESH_PEERING_OPEN);
 }
 
 /** Returns true if the frame is mesh peering management (MPM) confirm frame */
 static inline bool morse_dot11_is_mpm_confirm_frame(struct ieee80211_mgmt *mesh_mpm_frm)
 {
-	return (mesh_mpm_frm->u.action.u.self_prot.action_code == WLAN_SP_MESH_PEERING_CONFIRM);
+	return (MORSE_MPM_ACTION_CODE(mesh_mpm_frm) == WLAN_SP_MESH_PEERING_CONFIRM);
 }
 
 /** Returns start addr of IEs in a mesh peering management (MPM) frame */
@@ -132,7 +140,7 @@ static inline u8 *morse_dot11_mpm_frame_ies(struct ieee80211_mgmt *mesh_mpm_frm)
 	 * size of capab info and AID size of 2 bytes in case the frame
 	 * is peering confirm frame
 	 */
-	return (mesh_mpm_frm->u.action.u.self_prot.variable + 2 +
+	return (MORSE_MPM_VARIABLE(mesh_mpm_frm) + 2 +
 		(morse_dot11_is_mpm_confirm_frame(mesh_mpm_frm) ? 2 : 0));
 }
 
@@ -147,8 +155,8 @@ static inline bool morse_dot11_is_mpm_frame(struct ieee80211_mgmt *mgmt)
 	 * will not have any S1G IEs
 	 */
 	if (mgmt->u.action.category == WLAN_CATEGORY_SELF_PROTECTED &&
-	    (mgmt->u.action.u.self_prot.action_code == WLAN_SP_MESH_PEERING_OPEN ||
-	     mgmt->u.action.u.self_prot.action_code == WLAN_SP_MESH_PEERING_CONFIRM))
+	    (MORSE_MPM_ACTION_CODE(mgmt) == WLAN_SP_MESH_PEERING_OPEN ||
+	     MORSE_MPM_ACTION_CODE(mgmt) == WLAN_SP_MESH_PEERING_CONFIRM))
 		return true;
 	else
 		return false;

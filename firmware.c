@@ -181,7 +181,7 @@ static int get_section_header(const u8 *data, morse_elf_ehdr *ehdr, morse_elf_sh
  **/
 static int morse_set_boot_addr(struct morse *mors, uint32_t addr)
 {
-	int status;
+	int status = 0;
 
 	MORSE_INFO(mors, "Overwriting boot address to 0x%x\n", addr);
 	morse_claim_bus(mors);
@@ -190,10 +190,12 @@ static int morse_set_boot_addr(struct morse *mors, uint32_t addr)
 		MORSE_DBG(mors,
 			  "Memory access restriction is enabled. %s not permitted\n",
 			  __func__);
-		return 0;
+		goto exit;
 	}
 
 	status = morse_reg32_write(mors, MORSE_REG_BOOT_ADDR(mors), addr);
+
+exit:
 	morse_release_bus(mors);
 	return status;
 }
@@ -406,6 +408,33 @@ static int store_regdom_info(struct morse *mors, char regdom_buff[MAX_NUM_REGDOM
 	return 0;
 }
 
+struct morse_bcf_fallback_entry {
+	const char *country;
+	const char *fallback_cc;
+};
+
+static const struct morse_bcf_fallback_entry morse_bcf_fallback_table[] = {
+	{ "MX", "US" },
+	{ "AR", "AU" },
+	{ "CL", "AU" },
+	{ "CO", "AU" },
+};
+
+/**
+ * Returns a fallback BCF country code if the given countries regdom section
+ * is not present in the BCF, or NULL if there is no fallback.
+ */
+static const char *morse_bcf_country_fallback(const char *country)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(morse_bcf_fallback_table); i++) {
+		if (!strncmp(country, morse_bcf_fallback_table[i].country, 2))
+			return morse_bcf_fallback_table[i].fallback_cc;
+	}
+	return NULL;
+}
+
 /**
  * @brief Copy a section of the BCF file to a buffer
  *
@@ -433,6 +462,25 @@ static int copy_bcf_section(const struct firmware *bcf,
 	memset(dest + shdr.sh_size, 0xff, padded_len - shdr.sh_size);
 
 	return padded_len;
+}
+
+static int add_fallback_regdoms_to_buffer(struct morse *mors,
+					  char regdom_buff[MAX_NUM_REGDOMS][3],
+					  const char *regdom_cc)
+{
+	int j;
+	int ret;
+
+	for (j = 0; j < ARRAY_SIZE(morse_bcf_fallback_table); j++) {
+		if (!strncmp(regdom_cc, morse_bcf_fallback_table[j].fallback_cc, 2)) {
+			ret = add_regdom_to_buffer(mors, regdom_buff,
+						   morse_bcf_fallback_table[j].country);
+			if (ret)
+				return ret;
+		}
+	}
+
+	return 0;
 }
 
 static int morse_bcf_load(struct morse *mors, const struct firmware *bcf,
@@ -527,6 +575,10 @@ static int morse_bcf_load(struct morse *mors, const struct firmware *bcf,
 			ret = add_regdom_to_buffer(mors, regdom_buff, regdom_cc);
 			if (ret)
 				goto exit;
+
+			ret = add_fallback_regdoms_to_buffer(mors, regdom_buff, regdom_cc);
+			if (ret)
+				goto exit;
 		}
 
 		if ((strncmp(regdom_cc, mors->country, 2) == 0) && regdom_len < 0) {
@@ -540,6 +592,36 @@ static int morse_bcf_load(struct morse *mors, const struct firmware *bcf,
 			/* Do not break if parsing all regdoms to save to sysfs */
 			if (!fill_regdom_info_from_bcf)
 				break;
+		}
+	}
+
+	if (regdom_len < 0) {
+		const char *fallback = morse_bcf_country_fallback(mors->country);
+
+		if (fallback) {
+			for (i = 0; i < ehdr.e_shnum; i++) {
+				if (get_section_header(bcf->data, &ehdr, &shdr, i) != 0)
+					continue;
+				section_name = sh_strs + shdr.sh_name;
+				if (strncmp(section_name, reg_prefix, strlen(reg_prefix)) != 0)
+					continue;
+				regdom_cc = section_name + strlen(reg_prefix);
+				if (strncmp(regdom_cc, fallback, 2) != 0)
+					continue;
+				ret = copy_bcf_section(bcf, bcf_buf + config_len, shdr,
+						       bcf_buf_len - config_len);
+				MORSE_INFO(mors, "BCF section %s, size %d", section_name, ret);
+				if (ret < 0)
+					goto exit;
+				regdom_len = ret;
+				if (fill_regdom_info_from_bcf) {
+					ret = add_regdom_to_buffer(mors, regdom_buff,
+								   mors->country);
+					if (ret)
+						goto exit;
+				}
+				break;
+			}
 		}
 	}
 

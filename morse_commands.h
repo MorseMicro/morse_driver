@@ -17,7 +17,7 @@
 #define __sle64 __le64
 
 #define MORSE_CMD_SEMVER_MAJOR 57
-#define MORSE_CMD_SEMVER_MINOR 3
+#define MORSE_CMD_SEMVER_MINOR 14
 #define MORSE_CMD_SEMVER_PATCH 0
 
 #define MORSE_CMD_TYPE_REQ  BIT(0)
@@ -159,6 +159,7 @@ enum morse_cmd_id {
 	MORSE_CMD_ID_EVT_SCHED_SCAN_RESULTS	    = 0x4014,
 	MORSE_CMD_ID_EVT_CQM_RSSI_NOTIFY	    = 0x4015,
 	MORSE_CMD_ID_EVT_NDP_PROBE_REQUEST_RECEIVED = 0x4017,
+	MORSE_CMD_ID_EVT_HMI			    = 0x4018,
 
 	/* Fullmac-specific events */
 	MORSE_CMD_ID_EVT_SCAN_DONE	     = 0x4007,
@@ -1228,6 +1229,7 @@ enum morse_cmd_standby_mode {
  * @MORSE_CMD_STANDBY_MODE_EXIT_REASON_TCP_CONNECTION_LOST: TCP connection lost
  * @MORSE_CMD_STANDBY_MODE_EXIT_REASON_HW_SCAN_NOT_ENABLED: HW scan is not enabled
  * @MORSE_CMD_STANDBY_MODE_EXIT_REASON_HW_SCAN_FAILED_TO_START: HW scan failed to start
+ * @MORSE_CMD_STANDBY_MODE_EXIT_REASON_SERVER_CONNECTION_LOST: Connection to a server was lost
  * @MORSE_CMD_STANDBY_MODE_EXIT_REASON_MAX: Max exit reason enum value
  */
 enum morse_cmd_standby_mode_exit_reason {
@@ -1239,8 +1241,9 @@ enum morse_cmd_standby_mode_exit_reason {
 	MORSE_CMD_STANDBY_MODE_EXIT_REASON_TCP_CONNECTION_LOST	   = 5,
 	MORSE_CMD_STANDBY_MODE_EXIT_REASON_HW_SCAN_NOT_ENABLED	   = 6,
 	MORSE_CMD_STANDBY_MODE_EXIT_REASON_HW_SCAN_FAILED_TO_START = 7,
+	MORSE_CMD_STANDBY_MODE_EXIT_REASON_SERVER_CONNECTION_LOST  = 8,
 	MORSE_CMD_STANDBY_MODE_EXIT_REASON_MAX =
-		MORSE_CMD_STANDBY_MODE_EXIT_REASON_HW_SCAN_FAILED_TO_START,
+		MORSE_CMD_STANDBY_MODE_EXIT_REASON_SERVER_CONNECTION_LOST + 1,
 };
 
 /**
@@ -3142,6 +3145,17 @@ struct morse_cmd_evt_ndp_probe_request_received {
 } __packed;
 
 /**
+ * struct morse_cmd_evt_hmi - event message for HMI
+ * @trigger_id: ID of the trigger that fired.
+ * @action_id: ID of the action that was executed.
+ */
+struct morse_cmd_evt_hmi {
+	struct morse_cmd_header hdr;
+	u8 trigger_id;
+	u8 action_id;
+} __packed;
+
+/**
  * struct morse_cmd_evt_scan_done - event message for SCAN_DONE
  * @aborted: Whether the scan terminated before all channels were scanned
  *
@@ -3276,14 +3290,28 @@ enum morse_cmd_hart_id {
 };
 
 /**
+ * enum morse_cmd_crash_type - Type of firmware crash to be triggered.
+ * @MORSE_CMD_CRASH_TYPE_ASSERTION_FAILURE: Assertion failure
+ * @MORSE_CMD_CRASH_TYPE_NULL_DEREFERENCE: Null pointer dereference
+ * @MORSE_CMD_CRASH_TYPE_HANG: Hang without reaching the crash handler
+ */
+enum morse_cmd_crash_type {
+	MORSE_CMD_CRASH_TYPE_ASSERTION_FAILURE = 0,
+	MORSE_CMD_CRASH_TYPE_NULL_DEREFERENCE  = 1,
+	MORSE_CMD_CRASH_TYPE_HANG	       = 2,
+};
+
+/**
  * struct morse_cmd_req_force_assert - request message for FORCE_ASSERT
- * @hart_id: Target hart to crash with an intended assert @ref morse_cmd_hart_id
- * @delay: Delay until a forced assertion is triggered on chip (milliseconds).
+ * @hart_id: Target hart to crash. See @ref{enum morse_cmd_hart_id}.
+ * @delay: Delay until a crash is triggered on chip (milliseconds).
+ * @crash_type: Type of crash to trigger. See @ref{enum morse_cmd_crash_type}.
  */
 struct morse_cmd_req_force_assert {
 	struct morse_cmd_header hdr;
 	__le32 hart_id;
 	__le32 delay;
+	__le32 crash_type;
 } __packed;
 
 #define MORSE_CMD_HOST_BLOCK_TX_FRAMES BIT(0)
@@ -3311,6 +3339,10 @@ enum morse_cmd_slow_clock_mode {
 /**
  * enum morse_cmd_param_id - Subcommand IDs for generic get / set command
  * @MORSE_CMD_PARAM_ID_AUTOCONNECT: Automatically reconnect if connection is lost (FullMAC only).
+ * @MORSE_CMD_PARAM_ID_SCAN_INTERVAL_BASE_S: Base interval between scans when reconnecting (FullMAC
+ *                                           only).
+ * @MORSE_CMD_PARAM_ID_SCAN_INTERVAL_LIMIT_S: Maximum interval between scans when reconnecting
+ *                                            (FullMAC only).
  */
 enum morse_cmd_param_id {
 	MORSE_CMD_PARAM_ID_MAX_TRAFFIC_DELIVERY_WAIT_US	  = 0,
@@ -3345,7 +3377,10 @@ enum morse_cmd_param_id {
 	MORSE_CMD_PARAM_ID_AUTOCONNECT			= 31,
 	MORSE_CMD_PARAM_ID_HOST_PWR_OFF_GPIO		= 32,
 	MORSE_CMD_PARAM_ID_HOST_PWR_OFF_GPIO_PULSE_MS	= 33,
-	MORSE_CMD_PARAM_ID_LAST				= 34,
+	MORSE_CMD_PARAM_ID_ALLOW_PRE_ASSOC_OFF_CHAN_PS	= 34,
+	MORSE_CMD_PARAM_ID_SCAN_INTERVAL_BASE_S		= 35,
+	MORSE_CMD_PARAM_ID_SCAN_INTERVAL_LIMIT_S	= 36,
+	MORSE_CMD_PARAM_ID_LAST				= 37,
 };
 
 /**

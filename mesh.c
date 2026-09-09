@@ -727,9 +727,9 @@ static bool morse_dynamic_peering_is_frame_allowed(struct morse_mesh *mesh,
 	case IEEE80211_STYPE_ACTION:
 		if (mgmt->u.action.category == WLAN_ACTION_SELF_PROTECTED &&
 		    !ieee80211_has_protected(mgmt->frame_control) &&
-		    (mgmt->u.action.u.self_prot.action_code == PLINK_OPEN ||
-		     mgmt->u.action.u.self_prot.action_code == PLINK_CONFIRM ||
-		     mgmt->u.action.u.self_prot.action_code == PLINK_CLOSE)) {
+		    (MORSE_MPM_ACTION_CODE(mgmt) == PLINK_OPEN ||
+		     MORSE_MPM_ACTION_CODE(mgmt) == PLINK_CONFIRM ||
+		     MORSE_MPM_ACTION_CODE(mgmt) == PLINK_CLOSE)) {
 			/* Drop peering open, confirm and close frames */
 			allowed = false;
 		}

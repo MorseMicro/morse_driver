@@ -869,6 +869,12 @@ static int morse_sdio_probe(struct sdio_func *func, const struct sdio_device_id 
 		goto err_exit;
 	}
 
+	/* Digital reset the chip now if external (host) xtal initialisation is required */
+	if (enable_ext_xtal_init) {
+		MORSE_DBG(mors, "Resetting chip early for external xtal init");
+		mors->cfg->digital_reset(mors);
+	}
+
 	/* Verify the above chip_id matches the one read directly from the chip */
 	morse_claim_bus(mors);
 	ret = morse_reg32_read(mors, MORSE_REG_CHIP_ID(mors), &chip_id);
@@ -886,12 +892,6 @@ static int morse_sdio_probe(struct sdio_func *func, const struct sdio_device_id 
 	mors->cfg->gpios = gpios;
 	reset_gpio = gpios.reset;
 
-	/* Digital reset the chip now if external (host) xtal initialisation is required */
-	if (enable_ext_xtal_init) {
-		MORSE_DBG(mors, "Resetting chip early for external xtal init");
-		mors->cfg->digital_reset(mors);
-	}
-
 	morse_sdio_config_burst_mode(mors, false);
 
 	mors->board_serial = serial;
@@ -906,14 +906,14 @@ static int morse_sdio_probe(struct sdio_func *func, const struct sdio_device_id 
 
 	mutex_lock(&mors->lock);
 	ret = morse_firmware_prepare(mors, reset_hw, morse_hw_should_reattach());
+	if (!ret || ret == -EALREADY)
+		morse_hw_set_state(mors, MORSE_HW_STATE_ON);
 	mutex_unlock(&mors->lock);
 
 	if (ret == -EALREADY)
 		attach = true;
 	else if (ret)
 		goto err_exit;
-
-	morse_hw_set_state(mors, MORSE_HW_STATE_ON);
 	if (morse_test_mode_is_interactive(test_mode)) {
 		mors->chip_wq = create_singlethread_workqueue("MorseChipIfWorkQ");
 		if (!mors->chip_wq) {
@@ -942,14 +942,14 @@ static int morse_sdio_probe(struct sdio_func *func, const struct sdio_device_id 
 			MORSE_SDIO_ERR(mors, "failed to parse extended host table: %d\n", ret);
 			goto err_exit;
 		}
-	}
 
-	ret = morse_ps_init(mors);
-	if (ret) {
-		MORSE_SDIO_ERR(mors, "morse_ps_init failed: %d\n", ret);
-		goto err_exit;
+		ret = morse_ps_init(mors);
+		if (ret) {
+			MORSE_SDIO_ERR(mors, "morse_ps_init failed: %d\n", ret);
+			goto err_exit;
+		}
+		ps_initiated = true;
 	}
-	ps_initiated = true;
 
 	/* Enable SDIO interrupts before callng ieee80211_register_hw() or morse_wiphy_register */
 	ret = morse_sdio_enable_irq(sdio);

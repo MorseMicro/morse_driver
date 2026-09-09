@@ -100,12 +100,29 @@ config MORSE_POWERSAVE_MODE
 	  Choose 0 to disable Power Save, 1 to enable the Power Save protocol, or 2 to fully enable
 	  Power Save mode.
 
+config MORSE_CHANNELIZATION_SCHEME
+	int "Default channelization scheme"
+	default 3
+	range 1 3
+	help
+	  Channelization scheme for countries which have multiple channelization schemes.
+	  Choose 1 for IEEE 802.11-2020 channelization,
+	  2 for IEEE 802.11-2024 channelization, or
+	  3 for IEEE 802.11mf channelization.
+	  Use channelization_scheme={1,2,3} modparam when loading the dot11ah module to override this default.
+
 config MORSE_DHCP_OFFLOAD
 	bool "Offload DHCP lease renewal processing to the firmware"
 	default n
 	help
 	  When enabled, DHCP lease renewal and discovery is handled by the firmware, with no
 	  interaction with the host device. Only basic DHCP options are supported.
+
+config MORSE_DHCPC_LEASE_UPDATE_SCRIPT
+	string "DHCP lease update script"
+	default "/morse/scripts/dhcpc_update.sh"
+	help
+	  Script to be invoked when DHCP offload has obtained a new DHCP lease.
 
 config MORSE_ARP_OFFLOAD
 	bool "Offload ARP packet handling to the firmware"
@@ -117,7 +134,7 @@ config MORSE_ARP_OFFLOAD
 
 config MORSE_WATCHDOG_RESET_DEFAULT_DISABLED
 	bool "Disable driver reset from watchdog by default"
-	default y
+	default n
 	help
 	  When not set, if the watchdog detects an unrecoverable error, the default behaviour is to
 	  reset the firmware. When set, the default behaviour is to not reset the firmware.
@@ -142,17 +159,63 @@ config MORSE_MONITOR
 	help
 	  Enable to monitor traffic in a wireless channel.
 
+config MORSE_ENABLE_TEST_MODES
+	bool "Driver test modes for debugging firmware"
+	default n
+	help
+	  Enables a test_mode modparam for debugging purposes.
+
 config MORSE_DEBUGFS
 	bool "DebugFS support"
 	default n
 	help
 	  Enable for debugging support.
 
+config MORSE_DEBUG_IRQ
+	bool "Count IRQs in DebugFS"
+	default n
+	help
+	  Export IRQ counters in DebugFS.
+
+config MORSE_DEBUG_TXSTATUS
+	bool "Count tx status in DebugFS"
+	default n
+	help
+	  Export tx status counters in DebugFS.
+
+config MORSE_ENABLE_WIPHY
+	bool "Enable FullMAC mode by default"
+	default n
+	help
+	  FullMAC mode is selected by the enable_wiphy modparam.
+	  Say Y here to use FullMAC mode by default when the enable_wiphy modparam is absent.
+	  Otherwise SoftMAC mode is used by default.
+
+config MORSE_REATTACH_HW
+	bool "Enable HW reattach mode by default"
+	default n
+	help
+	  HW reattach mode is selected by the reattach_hw modparam.
+	  Say Y here to use HW reattach mode by default when the reattach_hw modparam is absent.
+	  Otherwise firmware is reloaded on every probe.
+
 config DISABLE_MORSE_FULLMAC
-	bool "Disable FullMAC support"
+	bool "Disable FullMAC support at build time"
 	default n
 	help
 	  Disable FullMAC support at build time. This may be necessary to build against
 	  older unpatched kernel that lacks some features required for FullMAC.
+
+config MORSE_KUNIT_TEST
+	tristate "KUnit tests for Morse driver" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Build KUnit tests for the Morse driver.
+
+	  For more information on KUnit and unit tests in general, please
+	  refer to the KUnit documentation in Documentation/dev-tools/kunit/.
+
+	  If unsure, say N.
 
 endif # WLAN_VENDOR_MORSE

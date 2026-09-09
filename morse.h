@@ -10,6 +10,7 @@
 
 #include <net/mac80211.h>
 #include <linux/workqueue.h>
+#include <linux/ieee80211.h>
 #include <linux/interrupt.h>
 #include <linux/kfifo.h>
 #include <linux/types.h>
@@ -538,6 +539,35 @@ enum morse_sme_state {
 	MORSE_SME_STATE_ROAMING,
 };
 
+/**
+ * struct morse_wiphy_connect_params - Parameters for connection request within the driver.
+ * @roam: Request roam instead of fresh connection (reassociate within the same ESS).
+ * @auth_type: Authentication type (open, OWE, SAE).
+ * @ssid: SSID to connect to.
+ * @ssid_len: Length of @ssid.
+ * @sae_pwd: Password for SAE authentication. Ignored for other authentication types.
+ * @sae_pwd_len: Length of @sae_pwd.
+ * @extra_assoc_ies: IEs appended to Association Request frame, in addition to
+ *                   firmware-generated IEs. Buffer is heap-allocated.
+ * @extra_assoc_ies_len: Length of @extra_assoc_ies.
+ * @bssid: Optional BSSID to connect to. If zero, firmware chooses any BSS.
+ * @bg_scan_period: Background scan period in seconds, or -1 to use default.
+ * @use_4addr: True if Linux "4-address mode" compatibility should be enabled.
+ */
+struct morse_wiphy_connect_params {
+	bool roam;
+	enum morse_cmd_connect_auth_type auth_type;
+	u8 ssid[IEEE80211_MAX_SSID_LEN];
+	size_t ssid_len;
+	u8 sae_pwd[SAE_PASSWORD_MAX_LEN];
+	size_t sae_pwd_len;
+	u8 *extra_assoc_ies;
+	size_t extra_assoc_ies_len;
+	u8 bssid[ETH_ALEN];
+	int bg_scan_period;
+	bool use_4addr;
+};
+
 struct morse_connected_evt_params {
 	u8 bssid[ETH_ALEN];
 	u16 assoc_resp_ies_len;
@@ -837,6 +867,9 @@ struct morse_vif {
 	 * @sme_state: Current state of the chip SME in fullmac mode.
 	 */
 	enum morse_sme_state sme_state;
+
+	/** @connect_params: Connection parameters when connecting/connected in fullmac mode. */
+	struct morse_wiphy_connect_params connect_params;
 
 	/** @connected_bss: The BSS we are connected to, when connected in fullmac mode. */
 	struct cfg80211_bss *connected_bss;
@@ -1312,7 +1345,7 @@ struct morse {
 	struct mcast_filter *mcast_filter;
 
 	/* reset stats */
-	u32 restart_counter;
+	unsigned int restart_counter;
 
 	/** Extra timeout applied to wait for ctrl-resp frames */
 	int extra_ack_timeout_us;
@@ -1339,9 +1372,6 @@ struct morse {
 
 	/* Number of AP interfaces */
 	u8 num_of_ap_interfaces;
-
-	/* One or more station connected that uses 4-address mode */
-	bool use_4addr_set;
 
 	/** Tracking of STAs yet to join the BSS (if ap-type interfaces are active) */
 	struct {

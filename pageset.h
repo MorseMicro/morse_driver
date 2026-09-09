@@ -35,12 +35,6 @@
 /** Must be power ^2 and >= CMD_RSVED_PAGES_MAX */
 #define CMD_RSVED_KFIFO_LEN 2
 
-/* Number of HOST->CHIP pages to reserve exclusively for commands to avoid starvation */
-#define CMD_RSVED_CMD_PAGES_MAX 1
-
-/* Number of HOST->CHIP pages to reserve exclusively for beacons to avoid starvation */
-#define CMD_RSVED_BEACON_PAGES_MAX 1
-
 /**
  * Number of CHIP->HOST returned pages to cache in the host to speed up TX
  *

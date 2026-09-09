@@ -11,12 +11,6 @@
 #include "chip_if.h"
 #include "trace.h"
 
-/**
- * Set this #define to control whether or not the pager hardware IRQ
- * is used instead of the HOSTSYNC interrupt.
- */
-#define ENABLE_PAGER_HW_IRQ 1
-
 /* Split 32-bits into 2 parts: block + bitmap */
 #define MORSE_PAGER_BITS_BLOCK_LEN	(1)
 #define MORSE_PAGER_BITS_BITMAP_LEN	(32 - MORSE_PAGER_BITS_BLOCK_LEN)
@@ -237,21 +231,7 @@ int morse_pager_hw_notify(const struct morse_pager *pager)
 	    (pager->flags & (MORSE_PAGER_FLAGS_DIR_TO_HOST | MORSE_PAGER_FLAGS_FREE)))
 		pager_hw_notify_pager(pager);
 
-#if ENABLE_PAGER_HW_IRQ
-	/**
-	 * Popping and putting from pager will generate interrupt on chip,
-	 * notify not required.
-	 */
 	return 0;
-#else
-	/* For hardware pager interrupts may be generated internally when
-	 * a page is pushed/pulled from the pager. This feature is currently
-	 * disabled in favor of a hostsync interrupt to make it easier
-	 * to batch pages together for AMPDUs.
-	 */
-	return morse_reg32_write(pager->mors, MORSE_PAGER_TRGR_SET(pager->mors),
-					MORSE_PAGER_IRQ_MASK(pager->id));
-#endif
 }
 
 int morse_pager_hw_pop(struct morse_pager *pager, struct morse_page *page)

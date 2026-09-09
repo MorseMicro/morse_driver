@@ -243,6 +243,19 @@ static bool is_interface_same_nolock(struct morse *mors, struct morse_vif *mors_
 	return mors->ps.mors_vif == mors_vif;
 }
 
+int morse_ps_get_iface_id(struct morse *mors)
+{
+	struct morse_ps *mps = &mors->ps;
+	int id = -1;
+
+	mutex_lock(&mps->lock);
+	if (mps->mors_vif)
+		id = mps->mors_vif->id;
+	mutex_unlock(&mps->lock);
+
+	return id;
+}
+
 bool morse_ps_is_interface_same(struct morse *mors, struct morse_vif *mors_vif)
 {
 	struct morse_ps *mps = &mors->ps;

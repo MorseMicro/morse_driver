@@ -90,21 +90,14 @@ void morse_skbq_mon_dump(struct morse *mors, struct seq_file *file);
 void morse_set_max_skb_txq_len(int new_max_txq_len);
 
 /**
- * @brief Unlink a given SKB from mq->pending, and perform Q specific
- *        'finish' processing on the SKB.
+ * morse_skbq_cmd_finish() - Complete a command SKB: unlink from pending and free.
+ * @mq  The command queue the SKB belongs to.
+ * @skb The command SKB to complete.
  *
- * @note The MQ lock (mq->lock) must be held by the caller.
- *
- * @param mq     The MQ from which the SKB came. Assumption is that SKB exists
- *               within mq->pending.
- * @param skb    The SKB to perform the finish processing on.
- * @param tx_sts The TX status returned from the chip to indicate how the SKB
- *               was sent.
- *
- * @return error code (0) on success else non-zero
+ * Context: The MQ lock (mq->lock) must be held by the caller.
+ * Return: None.
  */
-int morse_skbq_skb_finish(struct morse_skbq *mq, struct sk_buff *skb,
-			  struct morse_skb_tx_status *tx_sts);
+void morse_skbq_cmd_finish(struct morse_skbq *mq, struct sk_buff *skb);
 
 /**
  * @brief Flush pending and in-flight tx SKBs from the queue.
@@ -194,5 +187,7 @@ void morse_skbq_data_traffic_resume(struct morse *mors);
  * @return true if the check matches the fw calculated checksum
  */
 bool morse_validate_skb_checksum(u8 *data);
+
+u32 morse_skbq_tx_status_lifetime_ms(void);
 
 #endif /* !_MORSE_SKBQ_H_ */

@@ -104,7 +104,7 @@ struct morse_usb_command {
 	__le32 dir;		/* Next BULK direction */
 	__le32 address;		/* Next BULK address */
 	__le32 length;		/* Next BULK size */
-} __packet;
+} __packed;
 
 /* table of devices that work with this driver */
 static const struct usb_device_id morse_usb_table[] = {
@@ -872,14 +872,14 @@ static int morse_usb_probe(struct usb_interface *interface, const struct usb_dev
 
 	mutex_lock(&mors->lock);
 	ret = morse_firmware_prepare(mors, reset_hw, morse_hw_should_reattach());
+	if (!ret || ret == -EALREADY)
+		morse_hw_set_state(mors, MORSE_HW_STATE_ON);
 	mutex_unlock(&mors->lock);
 
 	if (ret == -EALREADY)
 		attach = true;
 	else if (ret)
 		goto err_ep;
-
-	morse_hw_set_state(mors, MORSE_HW_STATE_ON);
 	if (morse_test_mode_is_interactive(test_mode)) {
 		mors->chip_wq = create_singlethread_workqueue("MorseChipIfWorkQ");
 		if (!mors->chip_wq) {
@@ -1148,7 +1148,9 @@ static void morse_usb_disconnect(struct usb_interface *interface)
 
 	if (udev->state == USB_STATE_NOTATTACHED) {
 		clear_bit(MORSE_USB_FLAG_ATTACHED, &musb->flags);
+		mutex_lock(&mors->lock);
 		morse_hw_set_state(mors, MORSE_HW_STATE_OFF);
+		mutex_unlock(&mors->lock);
 		MORSE_USB_INFO(mors, "USB suddenly unplugged\n");
 	}
 

@@ -12,37 +12,6 @@
 #include "debug.h"
 #include "morse.h"
 
-/**
- * struct morse_wiphy_connect_params - Parameters for connection request within the driver.
- * @roam: Request roam instead of fresh connection (reassociate within the same ESS).
- * @auth_type: Authentication type (open, OWE, SAE).
- * @ssid: SSID to connect to.
- * @ssid_len: Length of @ssid. Buffer is owned by cfg80211.
- * @sae_pwd: Password for SAE authentication. Ignored for other authentication types.
- *           Buffer is owned by cfg80211.
- * @sae_pwd_len: Length of @sae_pwd.
- * @extra_assoc_ies: IEs appended to Association Request frame, in addition to
- *                   firmware-generated IEs. Buffer is owned by the driver.
- * @extra_assoc_ies_len: Length of @extra_assoc_ies.
- * @bssid: Optional BSSID to connect to. If NULL, firmware chooses any BSS.
- *         Buffer is owned by cfg80211.
- * @bg_scan_period: Background scan period in seconds, or -1 to use default.
- * @use_4addr: True if Linux "4-address mode" compatibility should be enabled.
- */
-struct morse_wiphy_connect_params {
-	bool roam;
-	enum morse_cmd_connect_auth_type auth_type;
-	const u8 *ssid;
-	size_t ssid_len;
-	const u8 *sae_pwd;
-	size_t sae_pwd_len;
-	u8 *extra_assoc_ies;
-	size_t extra_assoc_ies_len;
-	const u8 *bssid;
-	int bg_scan_period;
-	bool use_4addr;
-};
-
 #ifdef CONFIG_MORSE_FULLMAC
 
 /**
@@ -203,10 +172,8 @@ void morse_wiphy_disconnected(struct morse *mors);
  *
  * @mors: Morse device instance.
  * @mors_vif: Morse interface.
- * @autoconnect: True if the chip is expected to autoconnect, false if else.
  */
-void morse_wiphy_disconnected_work_nolock(struct morse *mors,
-					  struct morse_vif *mors_vif, bool autoconnect);
+void morse_wiphy_disconnected_work_nolock(struct morse *mors, struct morse_vif *mors_vif);
 
 /**
  * morse_wiphy_traffic_control() -  Pause or resume traffic
@@ -358,8 +325,7 @@ static inline void morse_wiphy_disconnected(struct morse *mors)
 }
 
 static inline void
-morse_wiphy_disconnected_work_nolock(struct morse *mors,
-				     struct morse_vif *mors_vif, bool autoconnect)
+morse_wiphy_disconnected_work_nolock(struct morse *mors, struct morse_vif *mors_vif)
 {
 }
 

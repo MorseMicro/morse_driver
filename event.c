@@ -190,7 +190,7 @@ int morse_mac_event_recv(struct morse *mors, struct sk_buff *skb)
 		break;
 	}
 	case MORSE_CMD_ID_EVT_HW_SCAN_DONE: {
-		morse_hw_scan_done_event(mors->hw);
+		morse_hw_scan_done_event(mors);
 
 		ret = 0;
 
@@ -266,6 +266,18 @@ int morse_mac_event_recv(struct morse *mors, struct sk_buff *skb)
 						probe_req_data->rx_bw_mhz,
 						probe_req_data->is_pv1);
 
+		break;
+	}
+
+	case MORSE_CMD_ID_EVT_HMI: {
+		struct morse_cmd_evt_hmi *hmi_evt =
+			(struct morse_cmd_evt_hmi *)event;
+
+		MORSE_INFO(mors, "HMI EVENT (trigger_id=%u action_id=%u)\n",
+			   hmi_evt->trigger_id, hmi_evt->action_id);
+		ret = morse_vendor_send_hmi_event(mors, hmi_evt);
+		if (ret)
+			MORSE_ERR(mors, "Failed to send HMI user action vendor event: %d\n", ret);
 		break;
 	}
 

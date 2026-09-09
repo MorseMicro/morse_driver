@@ -170,8 +170,13 @@ static int morse_cmd_tx(struct morse *mors, struct morse_cmd_resp *resp,
 	host_id = mors->cmd_seq << MORSE_CMD_HOST_ID_SEQ_SHIFT;
 
 	do {
+		/* Flush CMD requests that have not yet made it to the HW (i.e.
+		 * were left over from a previous attempt). Flush only the
+		 * outgoing request queue - command responses and events share
+		 * the RX command queue and must not be discarded here.
+		 */
+		morse_skbq_tx_flush(cmd_q);
 		req->hdr.host_id = cpu_to_le16(host_id | retry);
-
 		skb = morse_skbq_alloc_skb(cmd_q, cmd_len);
 		if (!skb) {
 			ret = -ENOMEM;
@@ -223,7 +228,7 @@ static int morse_cmd_tx(struct morse *mors, struct morse_cmd_resp *resp,
 		}
 		/* Free the command request */
 		spin_lock_bh(&cmd_q->lock);
-		morse_skbq_skb_finish(cmd_q, skb, NULL);
+		morse_skbq_cmd_finish(cmd_q, skb);
 		spin_unlock_bh(&cmd_q->lock);
 		mutex_unlock(&mors->cmd_lock);
 
@@ -750,8 +755,17 @@ int morse_cmd_set_channel(struct morse *mors,
 
 	ret = morse_cmd_tx(mors, (struct morse_cmd_resp *)&resp,
 			   (struct morse_cmd_req *)&req, sizeof(resp), 0, __func__);
-	if (!ret)
+	if (!ret) {
 		*power_mbm = QDBM_TO_MBM(le32_to_cpu(resp.power_qdbm));
+
+		MORSE_INFO(mors,
+			   "%s%s: f:%d o:%d p:%d i:%d power:%d mBm%s\n",
+			   __func__, mors->in_scan ? " (scanning)" : "",
+			   op_chan_freq_hz, op_bw_mhz,
+			   pri_bw_mhz, pri_1mhz_chan_idx,
+			   *power_mbm,
+			   (is_off_channel) ? " (offchan)" : "");
+	}
 
 	return ret;
 }
@@ -1061,7 +1075,8 @@ int morse_cmd_install_key(struct morse *mors, struct morse_vif *mors_vif,
 	    MORSE_CMD_TEMPORAL_KEY_TYPE_PTK : MORSE_CMD_TEMPORAL_KEY_TYPE_GTK;
 
 	req.key_idx = key->keyidx;
-	memcpy(&req.key[0], &key->key[0], sizeof(req.key));
+	memset(&req.key[0], 0, sizeof(req.key));
+	memcpy(&req.key[0], &key->key[0], key->keylen);
 
 	ret = morse_cmd_tx(mors, (struct morse_cmd_resp *)&resp,
 			   (struct morse_cmd_req *)&req, sizeof(resp), 0, __func__);
@@ -1431,7 +1446,7 @@ static int morse_cmd_vendor_standby_exit(struct morse *mors,
 		struct morse_vif *mors_vif = morse_wiphy_get_sta_vif(mors);
 
 		if (morse_wiphy_is_connected(mors_vif))
-			morse_wiphy_disconnected_work_nolock(mors, mors_vif, true);
+			morse_wiphy_disconnected_work_nolock(mors, mors_vif);
 	}
 
 exit:
@@ -2914,6 +2929,32 @@ int morse_cmd_set_channelization_scheme(struct morse *mors, u32 scheme)
 	req.action = cpu_to_le32(MORSE_CMD_PARAM_ACTION_SET);
 	req.flags = 0;
 	req.value = cpu_to_le32(scheme);
+
+	return morse_cmd_tx(mors, NULL, (struct morse_cmd_req *)&req, 0, 0, __func__);
+}
+
+int morse_cmd_set_autoconnect(struct morse *mors, bool autoconnect)
+{
+	struct morse_cmd_req_get_set_generic_param req;
+
+	morse_cmd_init(mors, &req.hdr, MORSE_CMD_ID_GET_SET_GENERIC_PARAM, 0, sizeof(req));
+	req.param_id = cpu_to_le32(MORSE_CMD_PARAM_ID_AUTOCONNECT);
+	req.action = cpu_to_le32(MORSE_CMD_PARAM_ACTION_SET);
+	req.flags = 0;
+	req.value = cpu_to_le32(autoconnect ? 1 : 0);
+
+	return morse_cmd_tx(mors, NULL, (struct morse_cmd_req *)&req, 0, 0, __func__);
+}
+
+int morse_cmd_set_pre_assoc_offchan_ps(struct morse *mors, bool allow)
+{
+	struct morse_cmd_req_get_set_generic_param req;
+
+	morse_cmd_init(mors, &req.hdr, MORSE_CMD_ID_GET_SET_GENERIC_PARAM, 0, sizeof(req));
+	req.param_id = cpu_to_le32(MORSE_CMD_PARAM_ID_ALLOW_PRE_ASSOC_OFF_CHAN_PS);
+	req.action = cpu_to_le32(MORSE_CMD_PARAM_ACTION_SET);
+	req.flags = 0;
+	req.value = cpu_to_le32(allow ? 1 : 0);
 
 	return morse_cmd_tx(mors, NULL, (struct morse_cmd_req *)&req, 0, 0, __func__);
 }
