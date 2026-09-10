@@ -8,7 +8,7 @@ else
 endif
 
 # Set 0 to a version number. This is done to match the Linux expectations
-override MORSE_VERSION = "0-rel_mm6108_2_0_1_2026_Jun_11"
+override MORSE_VERSION = "0-rel_mm8108_2_1_0_2026_Jul_01"
 
 USING_CLANG := $(shell $(CC) -v 2>&1 | grep -c "clang version")
 

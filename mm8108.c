@@ -45,7 +45,7 @@
 #define MM8108_REG_AON_LATCH_ADDR		0x00405020 /* radio_rf_ao_cfg_ao_latch */
 #define MM8108_REG_AON_LATCH_MASK		0x1
 #define MM8108_REG_AON_RESET_USB_VALUE		0x8
-#define MM8108_APPS_MAC_DMEM_ADDR_START		0x00100000 /* DTCM */
+#define MM8108_APPS_MAC_MEMBANK_ADDR_START	0x00230000
 #define MM8108_REG_GPIO_OUTPUT_EN_SET_ADDR	0x1360
 #define MM8108_REG_GPIO_OUTPUT_EN_CLR_ADDR	0x1364
 #define MM8108_REG_GPIO_OUTPUT_VALUE_SET_ADDR	0x1368
@@ -694,7 +694,7 @@ const struct morse_hw_regs mm8108_regs = {
 	 */
 	.otp_data_base_address = 0,
 
-	.pager_base_address = MM8108_APPS_MAC_DMEM_ADDR_START,
+	.test_mode_mem_base_address = MM8108_APPS_MAC_MEMBANK_ADDR_START,
 
 	/* AON registers */
 	.aon_latch = MM8108_REG_AON_LATCH_ADDR,

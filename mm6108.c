@@ -318,6 +318,8 @@ static const struct morse_hw_regs mm6108_regs = {
 
 	.pager_base_address = MM6108_DMEM_ADDR_START,
 
+	.test_mode_mem_base_address = MM6108_DMEM_ADDR_START,
+
 	/* AON registers */
 	.aon_latch = MM6108_REG_AON_LATCH_ADDR,
 	.aon_latch_mask = MM6108_REG_AON_LATCH_MASK,

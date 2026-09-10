@@ -1338,7 +1338,7 @@ static void morse_spi_remove(struct spi_device *spi)
 		detach_hw = morse_hw_can_detach(mors);
 		is_hw_detached = detach_hw;
 
-		if (morse_test_mode_is_interactive(test_mode)) {
+		if (!morse_test_mode_enabled(test_mode)) {
 			morse_mac_health_check_finish(mors);
 			morse_mac_unregister(mors);
 			morse_spi_disable_irq(mspi);
@@ -1674,7 +1674,7 @@ static int morse_spi_probe(struct spi_device *spi)
 		       mspi->inter_block_delay_bytes,
 		       mspi->max_block_count);
 
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		mors->chip_wq = create_singlethread_workqueue("MorseChipIfWorkQ");
 		if (!mors->chip_wq) {
 			MORSE_SPI_ERR(mors,
@@ -1718,7 +1718,7 @@ static int morse_spi_probe(struct spi_device *spi)
 		goto err_exit;
 	}
 
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		ret = morse_mac_health_check_init(mors);
 		if (ret) {
 			MORSE_SPI_ERR(mors, "morse_mac_health_check_init failed %d\n", ret);

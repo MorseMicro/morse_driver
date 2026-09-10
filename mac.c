@@ -4557,8 +4557,10 @@ morse_mac_ops_configure_filter(struct ieee80211_hw *hw,
 	if (!cmd)
 		goto out;
 
-	if (is_virtual_sta_test_mode())
+	if (is_virtual_sta_test_mode()) {
+		kfree(cmd);
 		goto out;
+	}
 
 	kfree(mors->mcast_filter);
 	mors->mcast_filter = cmd;
@@ -7837,6 +7839,8 @@ static void morse_mac_deinit(struct morse *mors)
 		wiphy->iface_combinations = NULL;
 		wiphy->n_iface_combinations = 0;
 	}
+	kfree(mors->mcast_filter);
+	mors->mcast_filter = NULL;
 	kfree(mors->vif);
 	mors->vif = NULL;
 }

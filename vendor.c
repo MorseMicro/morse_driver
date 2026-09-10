@@ -648,7 +648,7 @@ int morse_vendor_send_bss_stats_event(struct ieee80211_vif *vif,
 		return -EIO;
 
 	skb = cfg80211_vendor_event_alloc(wdev->wiphy, NULL, evt_data_len,
-					MORSE_VENDOR_EVENT_BSS_STATS, GFP_KERNEL);
+					MORSE_VENDOR_EVENT_BSS_STATS, GFP_ATOMIC);
 	if (!skb)
 		return -ENOMEM;
 
@@ -661,6 +661,6 @@ int morse_vendor_send_bss_stats_event(struct ieee80211_vif *vif,
 	}
 	MORSE_DBG(mors, "%s: Success in sending BSS stats event. num_stas: %d active_stas:%d",
 		  __func__, evt->num_stas, evt->num_active_stas);
-	cfg80211_vendor_event(skb, GFP_KERNEL);
+	cfg80211_vendor_event(skb, GFP_ATOMIC);
 	return ret;
 }

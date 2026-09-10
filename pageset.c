@@ -299,12 +299,34 @@ exit:
 		morse_pager_hw_notify(pager);
 }
 
-static void tx_page_unavailable_for_channel(struct morse *mors, enum morse_skb_channel channel)
+static bool tx_page_is_available_for_channel(struct morse_pageset *pageset,
+					     enum morse_skb_channel channel)
 {
-	if (channel == MORSE_SKB_CHAN_BEACON)
+	unsigned int total_available = 0;
+
+	lockdep_assert_held(&pageset->lock);
+
+	total_available = kfifo_len(&pageset->cached_pages);
+	if (channel == MORSE_SKB_CHAN_BEACON || channel == MORSE_SKB_CHAN_COMMAND)
+		total_available += kfifo_len(&pageset->reserved_pages);
+
+	return total_available > 0;
+}
+
+static void tx_page_unavailable_for_channel(struct morse_pageset *pageset,
+					    enum morse_skb_channel channel)
+{
+	struct morse *mors = pageset->mors;
+
+	lockdep_assert_held(&pageset->lock);
+
+	if (channel == MORSE_SKB_CHAN_BEACON) {
 		mors->debug.page_stats.bcn_no_page++;
-	else if (channel == MORSE_SKB_CHAN_COMMAND)
+		MORSE_DBG(mors, "%s no page available for beacon\n", __func__);
+	} else if (channel == MORSE_SKB_CHAN_COMMAND) {
 		mors->debug.page_stats.cmd_no_page++;
+		MORSE_ERR(mors, "%s unexpected command page exhaustion\n", __func__);
+	}
 }
 
 static int tx_page_get_for_channel(struct morse_pageset *pageset,
@@ -323,43 +345,6 @@ static int tx_page_get_for_channel(struct morse_pageset *pageset,
 	ret = kfifo_get(&pageset->cached_pages, page);
 
 	return ret == 0 ? -ENOMEM : 0;
-}
-
-static uint tx_pages_available_for_channel(struct morse_pageset *pageset,
-					  enum morse_skb_channel channel)
-{
-	int available;
-	int reserved;
-	int any;
-
-	lockdep_assert_held(&pageset->lock);
-
-	any = kfifo_len(&pageset->cached_pages);
-	reserved = kfifo_len(&pageset->reserved_pages);
-
-	if (channel == MORSE_SKB_CHAN_BEACON) {
-		/* A backlog of beacons should be cleared ASAP. They need to make
-		 * the round trip to the HW and back to keep the beacon SM in sync.
-		 */
-		available = any + reserved;
-	} else if (channel == MORSE_SKB_CHAN_COMMAND) {
-		/* The driver ensures CMDs are serialized (one in flight at a time). At
-		 * least one page must be kept in reserve for beacon channel
-		 * servicing.
-		 */
-		available = min_t(int, 1, (any + reserved) - 1);
-	} else {
-		/* Artificially reduce the number of pages available for other channels
-		 * if the reserved pool is not holding the maximum it should be.
-		 * Channels that use the reserved pool will also take from the other pool when
-		 * empty.
-		 */
-		MORSE_WARN_ON(FEATURE_ID_PAGER, reserved > CMD_RSVED_PAGES_MAX);
-		any -= (CMD_RSVED_PAGES_MAX - reserved);
-		available = min_t(int, MAX_PAGES_PER_TX_TXN, any);
-	}
-
-	return max(available, 0);
 }
 
 static int morse_pageset_write(struct morse_pageset *pageset,
@@ -587,6 +572,33 @@ exit:
 	return ret;
 }
 
+/**
+ * Determine how many pages are available for sending packets to the firmware.
+ * - Always use 1 for commands. There should only ever be one command in progress at a
+ *   time and there is a reserved page for it. If anything goes wrong the command will
+ *   be dropped.
+ */
+static int morse_pageset_num_pages(struct morse_pageset *pageset, enum morse_skb_channel channel)
+{
+	int num_pages = 0;
+
+	lockdep_assert_held(&pageset->lock);
+
+	if (channel == MORSE_SKB_CHAN_COMMAND) {
+		num_pages = min(CMD_RSVED_CMD_PAGES_MAX,
+				(int)kfifo_len(&pageset->reserved_pages) +
+				(int)kfifo_len(&pageset->cached_pages));
+	} else if (channel == MORSE_SKB_CHAN_BEACON) {
+		num_pages = min(CMD_RSVED_BEACON_PAGES_MAX,
+				(int)kfifo_len(&pageset->reserved_pages) +
+				(int)kfifo_len(&pageset->cached_pages));
+	} else {
+		num_pages = min_t(int, MAX_PAGES_PER_TX_TXN, kfifo_len(&pageset->cached_pages));
+	}
+
+	return num_pages;
+}
+
 /* Returns: less than zero (error), 0 (all tx transmitted), greater than zero (more to tx) */
 static int morse_pageset_tx(struct morse_pageset *pageset, enum morse_skb_channel channel, int aci)
 {
@@ -612,9 +624,9 @@ static int morse_pageset_tx(struct morse_pageset *pageset, enum morse_skb_channe
 	if (!n_to_tx)
 		return 0; /* Nothing to transmit from this mq */
 
-	n_pages_avail = tx_pages_available_for_channel(pageset, channel);
+	n_pages_avail = morse_pageset_num_pages(pageset, channel);
 	if (!n_pages_avail) {
-		tx_page_unavailable_for_channel(mors, channel);
+		tx_page_unavailable_for_channel(pageset, channel);
 		return -ENOMEM; /* No pages to transmit at all! */
 	}
 
@@ -994,7 +1006,7 @@ static void morse_pagesets_work(struct work_struct *work)
 		mutex_lock(&pageset->lock);
 
 		/* Attempt to refill the TX cache if there are no pages available for beacon TX */
-		if (!tx_pages_available_for_channel(pageset, MORSE_SKB_CHAN_BEACON) &&
+		if (!tx_page_is_available_for_channel(pageset, MORSE_SKB_CHAN_BEACON) &&
 		    test_and_clear_bit(MORSE_PAGE_RETURN_PEND, flags))
 			morse_pageset_to_chip_return_handler(mors, pageset);
 

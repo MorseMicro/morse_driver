@@ -274,6 +274,7 @@ struct morse_hw_regs {
 	u32 boot_value;
 	u32 otp_data_base_address;
 	u32 pager_base_address;
+	u32 test_mode_mem_base_address;
 	u32 aon_latch;
 	u32 aon_latch_mask;
 	u32 aon_reset_usb_value;

@@ -2057,7 +2057,8 @@ int morse_wiphy_init(struct morse *mors)
 
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_SAE_OFFLOAD);
 
-#if KERNEL_VERSION(6, 7, 0) <= MAC80211_VERSION_CODE
+#if KERNEL_VERSION(6, 7, 0) <= MAC80211_VERSION_CODE || \
+	defined(HAS_NL80211_EXT_FEATURE_OWE_OFFLOAD)
 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_OWE_OFFLOAD);
 #endif
 

@@ -170,13 +170,8 @@ static int morse_cmd_tx(struct morse *mors, struct morse_cmd_resp *resp,
 	host_id = mors->cmd_seq << MORSE_CMD_HOST_ID_SEQ_SHIFT;
 
 	do {
-		/* Flush CMD requests that have not yet made it to the HW (i.e.
-		 * were left over from a previous attempt). Flush only the
-		 * outgoing request queue - command responses and events share
-		 * the RX command queue and must not be discarded here.
-		 */
-		morse_skbq_tx_flush(cmd_q);
 		req->hdr.host_id = cpu_to_le16(host_id | retry);
+
 		skb = morse_skbq_alloc_skb(cmd_q, cmd_len);
 		if (!skb) {
 			ret = -ENOMEM;

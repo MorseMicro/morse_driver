@@ -880,7 +880,7 @@ static int morse_usb_probe(struct usb_interface *interface, const struct usb_dev
 		attach = true;
 	else if (ret)
 		goto err_ep;
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		mors->chip_wq = create_singlethread_workqueue("MorseChipIfWorkQ");
 		if (!mors->chip_wq) {
 			MORSE_USB_ERR(mors,
@@ -920,7 +920,7 @@ static int morse_usb_probe(struct usb_interface *interface, const struct usb_dev
 		morse_usb_enable_int(mors);
 	}
 
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		ret = morse_mac_health_check_init(mors);
 		if (ret) {
 			MORSE_USB_ERR(mors, "mmorse_mac_health_check_init failed %d\n", ret);
@@ -989,25 +989,25 @@ err_uaccess:
 		uaccess_cleanup(morse_usb_uaccess);
 		morse_usb_uaccess = NULL;
 	}
-	if (morse_test_mode_is_interactive(test_mode))
+	if (!morse_test_mode_enabled(test_mode))
 		morse_mac_unregister(mors);
 #endif
 err_mac:
-	if (morse_test_mode_is_interactive(test_mode))
+	if (!morse_test_mode_enabled(test_mode))
 		morse_usb_int_stop(mors);
 err_ps:
-	if (morse_test_mode_is_interactive(test_mode))
+	if (!morse_test_mode_enabled(test_mode))
 		morse_ps_finish(mors);
 err_host_table:
-	if (morse_test_mode_is_interactive(test_mode))
+	if (!morse_test_mode_enabled(test_mode))
 		mors->cfg->ops->finish(mors);
 err_buffs:
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		flush_workqueue(mors->net_wq);
 		destroy_workqueue(mors->net_wq);
 	}
 err_net_wq:
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		flush_workqueue(mors->chip_wq);
 		destroy_workqueue(mors->chip_wq);
 	}
@@ -1172,7 +1172,7 @@ static void morse_usb_disconnect(struct usb_interface *interface)
 	morse_usb_uaccess = NULL;
 #endif
 
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		morse_mac_health_check_finish(mors);
 		morse_mac_unregister(mors);
 		morse_usb_int_stop(mors);

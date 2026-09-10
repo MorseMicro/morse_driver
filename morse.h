@@ -1516,14 +1516,14 @@ static inline struct morse_persistent_vif_configs *morse_get_vif_conf_from_id(st
 	return &mors->persistent_vif_config.configs[vif_id];
 }
 
-static inline bool morse_test_mode_is_interactive(uint test_mode)
+static inline bool morse_test_mode_enabled(uint test_mode)
 {
 	if (test_mode == MORSE_CONFIG_TEST_MODE_DISABLED ||
 	    test_mode == MORSE_CONFIG_TEST_MODE_DOWNLOAD_AND_GET_HOST_TBL_PTR ||
 	    test_mode == MORSE_CONFIG_TEST_MODE_GET_HOST_TBL_PTR_ONLY)
-		return true;
+		return false;
 
-	return false;
+	return true;
 }
 
 /**

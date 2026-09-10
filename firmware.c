@@ -1481,7 +1481,7 @@ int morse_firmware_prepare(struct morse *mors, bool reset_hw, bool reattach_hw)
 		goto exit;
 
 	if (!reset_hw && reattach_hw) {
-		if (morse_test_mode_is_interactive(test_mode)) {
+		if (!morse_test_mode_enabled(test_mode)) {
 			is_hw_loaded = morse_hw_is_already_loaded(mors);
 			MORSE_DBG(mors, "HW is %s loaded\n", is_hw_loaded ? "already" : "not yet");
 		}

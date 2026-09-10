@@ -90,6 +90,7 @@ static void prepare_sta_stats(void *data, struct morse_sta *msta)
 		ieee80211_vif_to_morse_vif((struct ieee80211_vif *)iter_data->vif);
 	const struct morse *mors = morse_vif_to_morse(mors_vif);
 	struct ieee80211_sta *sta = morse_sta_to_ieee80211_sta(msta);
+	struct morse_bss_stats_context *bss_stats;
 	struct morse_active_sta_stats *sta_stats;
 	struct morse_bss_stats_sta *bs_sta;
 	struct morse_sta_entry *sta_entry;
@@ -101,6 +102,12 @@ static void prepare_sta_stats(void *data, struct morse_sta *msta)
 	u32 total_tx_pkts = 0, total_rx_pkts = 0;
 	int ac;
 	u16 sta_index;
+
+	if (!mors_vif->ap)
+		return;
+
+	bss_stats = &mors_vif->ap->bss_stats;
+	lockdep_assert_held(&bss_stats->lock);
 
 	if (!msta) {
 		MORSE_WARN_ON(FEATURE_ID_RAW, 1);
@@ -290,6 +297,7 @@ void morse_bss_stats_update_tx(struct ieee80211_vif *vif, struct sk_buff *skb,
 {
 	struct morse_sta *msta;
 	struct morse_vif *mors_vif = ieee80211_vif_to_morse_vif((struct ieee80211_vif *)vif);
+	struct morse_bss_stats_context *bss_stats;
 	struct morse *mors;
 	struct morse_sta_stats *entry;
 	size_t len;
@@ -309,6 +317,7 @@ void morse_bss_stats_update_tx(struct ieee80211_vif *vif, struct sk_buff *skb,
 
 	msta = (struct morse_sta *)sta->drv_priv;
 	mors = morse_vif_to_morse(mors_vif);
+	bss_stats = &mors_vif->ap->bss_stats;
 	tid = ieee80211_get_tid((struct ieee80211_hdr *)skb->data);
 	ac = dot11_tid_to_ac(tid);
 	if (ac >= IEEE80211_NUM_ACS) {
@@ -317,7 +326,12 @@ void morse_bss_stats_update_tx(struct ieee80211_vif *vif, struct sk_buff *skb,
 		return;
 	}
 	len = skb->len;
+
+	spin_lock_bh(&bss_stats->lock);
 	entry = msta->bss_stats_sta.stats;
+	if (!entry)
+		goto exit;
+
 	entry->num_tx_bytes[ac] += len;
 	entry->num_tx_pkts[ac]++;
 	entry->avg_tx_pkt_size = ema_update_u32(entry->avg_tx_pkt_size, len);
@@ -326,7 +340,7 @@ void morse_bss_stats_update_tx(struct ieee80211_vif *vif, struct sk_buff *skb,
 	now_us = div_u64(ktime_get_ns(), 1000);
 	if (entry->num_tx_pkts[ac] <= 1) {
 		entry->last_tx_timestamp_us = now_us;
-		return;
+		goto exit;
 	}
 	/* Calculate Inter-Packet Arrival Time (IAT) in microseconds */
 	iat_us = now_us - entry->last_tx_timestamp_us;
@@ -347,10 +361,13 @@ void morse_bss_stats_update_tx(struct ieee80211_vif *vif, struct sk_buff *skb,
 	if (!mmrc_rate_is_valid(&msta->last_sta_tx_rate)) {
 		MORSE_ERR_RATELIMITED(mors, "%s: Invalid Tx bw:%u mcs:%u\n",
 			__func__, msta->last_sta_tx_rate.bw, msta->last_sta_tx_rate.rate);
-		return;
+		goto exit;
 	}
 	entry->tx_mcs_hist.h[msta->last_sta_tx_rate.rate][msta->last_sta_tx_rate.bw]++;
 #endif
+
+exit:
+	spin_unlock_bh(&bss_stats->lock);
 }
 
 void morse_bss_stats_update_rx(struct ieee80211_vif *vif, struct sk_buff *skb,
@@ -359,7 +376,8 @@ void morse_bss_stats_update_rx(struct ieee80211_vif *vif, struct sk_buff *skb,
 	struct morse_sta *msta = (struct morse_sta *)sta->drv_priv;
 	struct morse_vif *mors_vif = ieee80211_vif_to_morse_vif(vif);
 	struct morse *mors = morse_vif_to_morse(mors_vif);
-	struct morse_sta_stats *entry = msta->bss_stats_sta.stats;
+	struct morse_bss_stats_context *bss_stats;
+	struct morse_sta_stats *entry;
 	struct mmrc_rate rx_rate;
 	size_t len;
 	u16 tid;
@@ -384,13 +402,20 @@ void morse_bss_stats_update_rx(struct ieee80211_vif *vif, struct sk_buff *skb,
 	}
 
 	len = skb->len;
+	bss_stats = &mors_vif->ap->bss_stats;
+
+	spin_lock_bh(&bss_stats->lock);
+	entry = msta->bss_stats_sta.stats;
+	if (!entry)
+		goto exit;
+
 	entry->num_rx_bytes[ac] += len;
 	entry->num_rx_pkts[ac]++;
 	entry->avg_rx_pkt_size = ema_update_u32(entry->avg_rx_pkt_size, len);
 
 	if (entry->num_rx_pkts[ac] <= 1) {
 		entry->last_rx_timestamp_us = le64_to_cpu(rx_status->rx_timestamp_us);
-		return;
+		goto exit;
 	}
 
 	/* Calculate Inter-Packet Arrival Time (IAT) and Jitter */
@@ -416,10 +441,13 @@ void morse_bss_stats_update_rx(struct ieee80211_vif *vif, struct sk_buff *skb,
 	if (!mmrc_rate_is_valid(&rx_rate)) {
 		MORSE_ERR_RATELIMITED(mors, "%s: Invalid Rx bw:%u mcs:%u\n",
 			__func__, rx_rate.bw, rx_rate.rate);
-		return;
+		goto exit;
 	}
 	entry->rx_mcs_hist.h[rx_rate.rate][rx_rate.bw]++;
 #endif
+
+exit:
+	spin_unlock_bh(&bss_stats->lock);
 }
 
 /**
@@ -468,6 +496,8 @@ static int morse_bss_stats_add_sta(struct ieee80211_vif *vif, struct ieee80211_s
 	bss_stats = &mors_vif->ap->bss_stats;
 
 	stats = kzalloc(sizeof(*stats), GFP_KERNEL);
+	if (!stats)
+		return -ENOMEM;
 
 	spin_lock_bh(&bss_stats->lock);
 
@@ -727,6 +757,6 @@ void morse_bss_stats_deinit(struct morse_vif *mors_vif)
 		return;
 
 	bss_stats = &mors_vif->ap->bss_stats;
-	morse_bss_stats_remove_all(mors_vif, bss_stats);
 	DEL_TIMER_SYNC(&bss_stats->timer);
+	morse_bss_stats_remove_all(mors_vif, bss_stats);
 }

@@ -472,4 +472,5 @@ alloc_netdev_err:
 void morse_mon_free(struct morse *mors)
 {
 	unregister_netdev(morse_mon);
+	free_netdev(morse_mon);
 }

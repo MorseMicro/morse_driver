@@ -25,7 +25,7 @@
  * to be tested
  * Default configuration is the DMEM start address.
  */
-#define BUS_TEST_READ_WRITE_ADDRESS_LIST {mors->cfg->regs->pager_base_address,}
+#define BUS_TEST_READ_WRITE_ADDRESS_LIST {mors->cfg->regs->test_mode_mem_base_address,}
 
 /* Batch size for tput tests */
 #define PROFILER_BATCH_SIZE	(16)
@@ -183,7 +183,7 @@ static void morse_bus_tput_timing_test(struct morse *mors)
 	u32 reg_addr_wr = MM6108_WORD_INVERT_WR_REG;
 
 	/* Start of dmem */
-	u32 dm_addr = mors->cfg->regs->pager_base_address;
+	u32 dm_addr = mors->cfg->regs->test_mode_mem_base_address;
 
 	send_buffer = kmalloc(write_size, GFP_KERNEL);
 	if (!send_buffer)
@@ -351,7 +351,7 @@ static void morse_bus_tput_test(struct morse *mors)
 	u32 reg_addr_wr = MM6108_WORD_INVERT_WR_REG;
 
 	/* Start of dmem */
-	u32 dm_addr = mors->cfg->regs->pager_base_address;
+	u32 dm_addr = mors->cfg->regs->test_mode_mem_base_address;
 
 	send_buffer = kmalloc(write_size, GFP_KERNEL);
 

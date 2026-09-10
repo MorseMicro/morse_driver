@@ -914,7 +914,7 @@ static int morse_sdio_probe(struct sdio_func *func, const struct sdio_device_id 
 		attach = true;
 	else if (ret)
 		goto err_exit;
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		mors->chip_wq = create_singlethread_workqueue("MorseChipIfWorkQ");
 		if (!mors->chip_wq) {
 			MORSE_SDIO_ERR(mors,
@@ -959,7 +959,7 @@ static int morse_sdio_probe(struct sdio_func *func, const struct sdio_device_id 
 	}
 	irq_enabled = true;
 
-	if (morse_test_mode_is_interactive(test_mode)) {
+	if (!morse_test_mode_enabled(test_mode)) {
 		ret = morse_mac_health_check_init(mors);
 		if (ret) {
 			MORSE_SDIO_ERR(mors, "morse_mac_health_check_init failed %d\n", ret);
@@ -1096,7 +1096,7 @@ static void morse_sdio_remove(struct sdio_func *func)
 		morse_uaccess = NULL;
 #endif
 
-		if (morse_test_mode_is_interactive(test_mode)) {
+		if (!morse_test_mode_enabled(test_mode)) {
 			morse_mac_health_check_finish(mors);
 			morse_mac_unregister(mors);
 			morse_sdio_disable_irq(sdio);
