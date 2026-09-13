@@ -152,6 +152,18 @@ struct uaccess *morse_spi_uaccess;
 
 #define SPI_DEFAULT_INTER_BLOCK_DELAY_NANO_S	(40000)
 
+/*
+ * Floor for every inter-transaction delay, in bytes clocked on the bus.
+ *
+ * The delays below are derived from a time and then converted to a byte count
+ * using the SPI clock. That is the wrong model: the chip needs a fixed number of
+ * clocks, not a fixed interval. 40 us is 250 bytes at 50 MHz but only 50 bytes at
+ * 10 MHz, and 50 does not work -- measured on an MM6108 over spi-bcm2835, where
+ * 250 succeeds and 50 fails at the same 40 us. Without this floor the driver
+ * happens to be correct only at full clock.
+ */
+#define SPI_MIN_DELAY_BYTES		(250)
+
 /* Value to indicate that the base address for bulk/register read/writes has yet to be set */
 #define MORSE_SPI_BASE_ADDR_UNSET 0xFFFFFFFF
 
@@ -293,6 +305,35 @@ static int morse_spi_xfer(struct morse_spi *mspi, unsigned int len)
 static void morse_spi_initsequence(struct morse_spi *mspi)
 {
 	struct spi_device *spi = mspi->spi;
+
+	const u32 saved_mode = spi->mode;
+
+	/*
+	 * SPI_NO_CS asks the controller to leave the chip select line alone for
+	 * the transfer, which is exactly what this burst needs.
+	 *
+	 * Flipping SPI_CS_HIGH does not achieve it when the controller uses GPIO
+	 * chip selects. spi_setup() forces SPI_CS_HIGH back on for such a device
+	 * so that gpiolib applies the active-low inversion exactly once, so the
+	 * flip is a no-op: the training clocks go out with the chip *selected*,
+	 * the chip never enters SPI mode, and every response afterwards sits two
+	 * bit times off the byte grid.
+	 */
+	spi->mode |= SPI_NO_CS;
+	if (spi_setup(spi) == 0 && (spi->mode & SPI_NO_CS)) {
+		/* We will send only 0xFF for training */
+		memset(mspi->data, 0xFF, MM610X_BUF_SIZE);
+		morse_spi_xfer(mspi, 18);
+
+		spi->mode = saved_mode;
+		if (spi_setup(spi) != 0)
+			dev_err(&spi->dev, "can't restore SPI mode after init\n");
+		return;
+	}
+
+	/* Controller does not support SPI_NO_CS; fall back to flipping. */
+	spi->mode = saved_mode;
+	spi_setup(spi);
 
 	spi->mode |= SPI_CS_HIGH;
 	if (spi_setup(spi) != 0) {
@@ -585,7 +626,9 @@ static int morse_spi_cmd53_read(struct morse_spi *mspi, u8 fn, u32 address, u8 *
 
 	if (!block) {
 		/* Scale bytes delay to block */
-		u32 extra_bytes = (count * mspi->inter_block_delay_bytes) / MMC_SPI_BLOCKSIZE;
+		u32 extra_bytes = max_t(u32, SPI_MIN_DELAY_BYTES,
+					(count * mspi->inter_block_delay_bytes) /
+					MMC_SPI_BLOCKSIZE);
 
 		/* Allow 4 bytes for CRC and another 10 bytes for start block token & chip delays
 		 * (usually comes in 2).
@@ -747,9 +790,9 @@ static int morse_spi_cmd53_write(struct morse_spi *mspi, u8 fn, u32 address, u8 
 
 		/* Allow more bytes for status and chip processing (depends on CLK) */
 		if (block)
-			cp += mspi->inter_block_delay_bytes;
+			cp += max_t(u32, SPI_MIN_DELAY_BYTES, mspi->inter_block_delay_bytes);
 		else
-			cp += spi_post_write_status_bytes;
+			cp += max_t(u32, SPI_MIN_DELAY_BYTES, spi_post_write_status_bytes);
 	}
 
 	if (enable_ext_xtal_init) {
@@ -1200,9 +1243,9 @@ static void morse_spi_set_inter_block_delay(struct morse *mors, bool burst_enabl
 	if (spi_inter_block_delay_bytes)
 		mspi->inter_block_delay_bytes = spi_inter_block_delay_bytes;
 	else
-		mspi->inter_block_delay_bytes =
+		mspi->inter_block_delay_bytes = max_t(u32, SPI_MIN_DELAY_BYTES,
 			mors->cfg->get_spi_inter_block_delay_ns(burst_enabled) /
-			((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8));
+			((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8)));
 
 	mspi->max_block_count =
 		SPI_MAX_TRANSACTION_SIZE /
@@ -1516,9 +1559,9 @@ static int morse_spi_probe(struct spi_device *spi)
 	mspi_data_allocated = true;
 
 	mspi->spi = spi;
-	mspi->inter_block_delay_bytes =
+	mspi->inter_block_delay_bytes = max_t(u32, SPI_MIN_DELAY_BYTES,
 		SPI_DEFAULT_INTER_BLOCK_DELAY_NANO_S /
-		((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8));
+		((SPI_CLK_PERIOD_NANO_S(mspi->spi->max_speed_hz) * 8)));
 
 	morse_spi_reset_base_address(mspi);
 
@@ -1576,7 +1619,18 @@ static int morse_spi_probe(struct spi_device *spi)
 #ifdef SPI_CONTROLLER_ENABLE_CS_GPIOD
 	spi->controller->flags |= SPI_CONTROLLER_ENABLE_CS_GPIOD;
 #else
-#warning "SPI_CONTROLLER_ENABLE_CS_GPIOD macro not defined"
+	/*
+	 * SPI_CONTROLLER_ENABLE_CS_GPIOD is a vendor-kernel flag and does not
+	 * exist upstream. Kernels without it already force SPI_CS_HIGH for a
+	 * cs-gpios device and let gpiolib apply the active-low inversion once,
+	 * which is the behaviour the flag was there to obtain, so there is
+	 * nothing to do here.
+	 *
+	 * This was a #warning, and ccflags-y carries -Werror, so it was fatal
+	 * rather than advisory: the driver did not build at all on such a
+	 * kernel -- including raspberrypi/linux 6.6.51, which does not define
+	 * the macro either.
+	 */
 #endif
 #endif
 	morse_spi_xfer_init(mspi);
