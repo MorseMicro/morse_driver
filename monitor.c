@@ -7,6 +7,7 @@
 #include <net/xfrm.h>
 #include <net/mac80211.h>
 #include <net/ieee80211_radiotap.h>
+#include <linux/unaligned.h>
 #include <linux/if_arp.h>
 #include <linux/rtnetlink.h>
 
@@ -16,7 +17,9 @@
 #include "monitor.h"
 #include "s1g_radiotap.h"
 #include "skb_header.h"
+#include "skbq.h"
 #include "vendor.h"
+#include "dot11ah/dot11ah.h"
 
 #define RT_ZERO_LEN_PSDU_DATA			0x2
 #define RT_ZERO_LEN_PSDU_VENDOR_SPECIFIC	0xff
@@ -73,9 +76,346 @@ struct padding {
 
 static struct net_device *morse_mon;	/* global monitor netdev */
 
+/* Preserve the receive-only behavior until an operator explicitly enables TX. */
+static bool enable_monitor_injection;
+module_param(enable_monitor_injection, bool, 0644);
+MODULE_PARM_DESC(enable_monitor_injection,
+		 "Allow raw 802.11ah management/data TX through the monitor netdev");
+
+/* The monitor netdev is separate from the mac80211 virtual interface. */
+struct morse_mon_priv {
+	struct morse *mors;
+};
+
+struct morse_mon_tx_params {
+	u16 rt_len;
+	u16 channel_mhz;
+	u32 freq_khz;
+	u8 mcs;
+	u8 bw;
+	u8 attempts;
+	u8 ppdu_format;
+	bool has_channel;
+	bool has_freq;
+	bool has_mcs;
+	bool has_bw;
+	bool has_ppdu_format;
+	bool has_s1g;
+	bool short_gi;
+	bool strip_fcs;
+};
+
+#define MORSE_MON_TX_FIELDS (BIT(IEEE80211_RADIOTAP_TSFT) | \
+	BIT(IEEE80211_RADIOTAP_FLAGS) | BIT(IEEE80211_RADIOTAP_RATE) | \
+	BIT(IEEE80211_RADIOTAP_CHANNEL) | \
+	BIT(IEEE80211_RADIOTAP_DBM_ANTSIGNAL) | \
+	BIT(IEEE80211_RADIOTAP_TX_FLAGS) | \
+	BIT(IEEE80211_RADIOTAP_DATA_RETRIES) | \
+	BIT(IEEE80211_RADIOTAP_AMPDU_STATUS) | \
+	BIT(IEEE80211_RADIOTAP_TLV))
+
+static int morse_mon_parse_tlvs(const u8 *data, u16 rt_len, size_t offset,
+				struct morse_mon_tx_params *tx)
+{
+	while (offset < rt_len) {
+		u16 type, length;
+		size_t padded;
+
+		if (rt_len - offset < 4)
+			return -EINVAL;
+		type = get_unaligned_le16(data + offset);
+		length = get_unaligned_le16(data + offset + 2);
+		if (length > rt_len - offset - 4)
+			return -EINVAL;
+		padded = ALIGN((size_t)length + 4, 4);
+		if (padded > rt_len - offset)
+			return -EINVAL;
+
+		if (type == DOT11_RT_TLV_S1G_TYPE) {
+			u16 known, data1;
+			u8 nss;
+
+			if (length != DOT11_RT_TLV_S1G_LENGTH || tx->has_s1g)
+				return -EINVAL;
+			known = get_unaligned_le16(data + offset + 4);
+			data1 = get_unaligned_le16(data + offset + 6);
+			if (known & ~(DOT11_RT_S1G_KNOWN_PPDU_FMT |
+				      DOT11_RT_S1G_KNOWN_GI |
+				      DOT11_RT_S1G_KNOWN_NSS |
+				      DOT11_RT_S1G_KNOWN_BW |
+				      DOT11_RT_S1G_KNOWN_MCS))
+				return -EOPNOTSUPP;
+			tx->has_s1g = true;
+			if (known & DOT11_RT_S1G_KNOWN_NSS) {
+				nss = (data1 >> 6) & 0x3;
+				if (nss != 0) /* MM6108 has one spatial stream. */
+					return -EOPNOTSUPP;
+			}
+			if (known & DOT11_RT_S1G_KNOWN_BW) {
+				tx->bw = (data1 >> 8) & 0xf;
+				tx->has_bw = true;
+			}
+			if (known & DOT11_RT_S1G_KNOWN_MCS) {
+				u8 mcs = (data1 >> 12) & 0xf;
+
+				if (tx->has_mcs && tx->mcs != mcs)
+					return -EINVAL;
+				tx->mcs = mcs;
+				tx->has_mcs = true;
+			}
+			if (known & DOT11_RT_S1G_KNOWN_GI)
+				tx->short_gi = !!(data1 & BIT(5));
+			if (known & DOT11_RT_S1G_KNOWN_PPDU_FMT) {
+				tx->ppdu_format = data1 & 0x3;
+				tx->has_ppdu_format = true;
+			}
+		} else if (type == IEEE80211_RADIOTAP_VENDOR_NAMESPACE &&
+			   length == MORSE_VENDOR_TLV_FREQ_KHZ_SIZE && !tx->has_freq) {
+			const u8 *vendor = data + offset + 4;
+
+			if (vendor[0] == (MORSE_OUI >> 16) &&
+			    vendor[1] == ((MORSE_OUI >> 8) & 0xff) &&
+			    vendor[2] == (MORSE_OUI & 0xff) &&
+			    vendor[3] == MORSE_VENDOR_TLV_SUBNS_0 &&
+			    get_unaligned_le16(vendor + 4) == MORSE_VENDOR_TLV_FREQ_KHZ_TYPE) {
+				tx->freq_khz = get_unaligned_le32(vendor + 8);
+				tx->has_freq = true;
+			} else {
+				return -EOPNOTSUPP;
+			}
+		} else {
+			return -EOPNOTSUPP;
+		}
+		offset += padded;
+	}
+	return 0;
+}
+
+static int morse_mon_parse_radiotap(const u8 *data, size_t length,
+				    struct morse_mon_tx_params *tx)
+{
+	const struct ieee80211_radiotap_header *rt = (const void *)data;
+	u32 fields;
+	size_t offset = sizeof(*rt);
+	int bit;
+
+	if (length < sizeof(*rt) || rt->it_version)
+		return -EINVAL;
+	tx->rt_len = get_unaligned_le16(&rt->it_len);
+	if (tx->rt_len < sizeof(*rt) || tx->rt_len > length)
+		return -EINVAL;
+	fields = get_unaligned_le32(&rt->it_present);
+	/* Reject extended or unsupported fields instead of silently ignoring TX controls. */
+	if (fields & ~MORSE_MON_TX_FIELDS)
+		return -EOPNOTSUPP;
+	tx->attempts = 1;
+
+	for (bit = 0; bit <= IEEE80211_RADIOTAP_TLV; bit++) {
+		size_t align = 1, size = 0;
+
+		if (!(fields & BIT(bit)))
+			continue;
+		switch (bit) {
+		case IEEE80211_RADIOTAP_TSFT:
+			align = 8;
+			size = 8;
+			break;
+		case IEEE80211_RADIOTAP_FLAGS:
+		case IEEE80211_RADIOTAP_RATE:
+		case IEEE80211_RADIOTAP_DBM_ANTSIGNAL:
+		case IEEE80211_RADIOTAP_DATA_RETRIES:
+			size = 1;
+			break;
+		case IEEE80211_RADIOTAP_CHANNEL:
+			align = 2;
+			size = 4;
+			break;
+		case IEEE80211_RADIOTAP_TX_FLAGS:
+			align = 2;
+			size = 2;
+			break;
+		case IEEE80211_RADIOTAP_AMPDU_STATUS:
+			align = 4;
+			size = 8;
+			break;
+		case IEEE80211_RADIOTAP_TLV:
+			offset = ALIGN(offset, 4);
+			if (offset > tx->rt_len)
+				return -EINVAL;
+			return morse_mon_parse_tlvs(data, tx->rt_len, offset, tx);
+		default:
+			return -EOPNOTSUPP;
+		}
+		offset = ALIGN(offset, align);
+		if (offset > tx->rt_len || size > tx->rt_len - offset)
+			return -EINVAL;
+		switch (bit) {
+		case IEEE80211_RADIOTAP_FLAGS:
+			/* Encryption and fragmentation requests need a normal VIF. */
+			if (data[offset] & ~IEEE80211_RADIOTAP_F_FCS)
+				return -EOPNOTSUPP;
+			tx->strip_fcs = !!(data[offset] & IEEE80211_RADIOTAP_F_FCS);
+			break;
+		case IEEE80211_RADIOTAP_RATE:
+			/* Morse's capture format uses the high bit plus the S1G MCS. */
+			if (!(data[offset] & BIT(7)))
+				return -EOPNOTSUPP;
+			tx->mcs = data[offset] & 0x7f;
+			tx->has_mcs = true;
+			break;
+		case IEEE80211_RADIOTAP_CHANNEL:
+			tx->channel_mhz = get_unaligned_le16(data + offset);
+			tx->has_channel = true;
+			break;
+		case IEEE80211_RADIOTAP_TX_FLAGS:
+			/* NOACK/RTS/CTS are not exposed by this firmware TX API. */
+			if (get_unaligned_le16(data + offset))
+				return -EOPNOTSUPP;
+			break;
+		case IEEE80211_RADIOTAP_DATA_RETRIES:
+			if (data[offset] > 3)
+				return -ERANGE;
+			tx->attempts = data[offset] + 1;
+			break;
+		default:
+			break;
+		}
+		offset += size;
+	}
+	return offset == tx->rt_len ? 0 : -EINVAL;
+}
+
+static bool morse_mon_regdom_allows_channel(const char *region, u32 center_khz, u8 bw_mhz)
+{
+	const struct morse_reg_rule *rule = morse_regdom_get_rule_for_freq(region, center_khz);
+	const struct ieee80211_freq_range *range;
+	u32 half_bw_khz = bw_mhz * 500;
+
+	if (!rule || center_khz < half_bw_khz)
+		return false;
+	range = &rule->dot11_reg.freq_range;
+	return !(rule->dot11_reg.flags & NL80211_RRF_NO_IR) &&
+		bw_mhz * 1000 <= range->max_bandwidth_khz &&
+		center_khz - half_bw_khz >= range->start_freq_khz &&
+		center_khz + half_bw_khz <= range->end_freq_khz;
+}
+
 static netdev_tx_t morse_mon_xmit(struct sk_buff *skb, struct net_device *dev)
 {
-	/* TODO: allow packet injection */
+	struct morse *mors = ((struct morse_mon_priv *)netdev_priv(dev))->mors;
+	struct morse_mon_tx_params tx = { 0 };
+	struct morse_skb_tx_info tx_info = { 0 };
+	struct morse_skbq *mq;
+	struct sk_buff *fw_skb;
+	struct morse_channel_info *channel;
+	const u8 *frame;
+	__le16 fc;
+	size_t frame_len;
+	u32 op_freq_khz, tx_freq_khz;
+	u8 bw_mhz;
+	int ret;
+
+	/* This path has only been validated with MM6108 SoftMAC firmware. */
+	if (!READ_ONCE(enable_monitor_injection) || is_fullmac_mode() ||
+	    (mors->chip_id != MM6108A0_ID && mors->chip_id != MM6108A1_ID &&
+	     mors->chip_id != MM6108A2_ID) ||
+	    !READ_ONCE(mors->monitor_mode) ||
+	    READ_ONCE(mors->mon_if.id) == INVALID_VIF_ID ||
+	    !morse_mlme_is_started(mors) ||
+	    test_bit(MORSE_STATE_FLAG_STOPPING, &mors->state_flags))
+		goto drop;
+	if (skb_is_nonlinear(skb) && skb_linearize(skb))
+		goto drop;
+	ret = morse_mon_parse_radiotap(skb->data, skb->len, &tx);
+	if (ret)
+		goto drop;
+	frame_len = skb->len - tx.rt_len;
+	if (tx.strip_fcs) {
+		if (frame_len < 4)
+			goto drop;
+		frame_len -= 4; /* Firmware generates its own FCS. */
+	}
+	if (frame_len < 24 || frame_len > IEEE80211_MAX_FRAME_LEN)
+		goto drop;
+	frame = skb->data + tx.rt_len;
+	fc = cpu_to_le16(get_unaligned_le16(frame));
+	if (!ieee80211_is_mgmt(fc) && !ieee80211_is_data(fc))
+		goto drop;
+	if (frame_len < ieee80211_hdrlen(fc))
+		goto drop;
+
+	channel = &mors->custom_configs.channel_info;
+	if (!channel->op_chan_freq_hz ||
+	    (channel->op_bw_mhz != 1 && channel->op_bw_mhz != 2 &&
+	     channel->op_bw_mhz != 4 && channel->op_bw_mhz != 8) ||
+	    channel->pri_1mhz_chan_idx >= channel->op_bw_mhz)
+		goto drop;
+
+	if (tx.has_bw && tx.bw > DOT11_RT_S1G_BW_8MHZ)
+		goto drop;
+	bw_mhz = tx.has_bw ? (1U << tx.bw) : channel->pri_bw_mhz;
+	if (!bw_mhz || bw_mhz > channel->op_bw_mhz || bw_mhz > 8 ||
+	    (bw_mhz != 1 && bw_mhz != 2 && bw_mhz != 4 && bw_mhz != 8))
+		goto drop;
+	/* The chip sends narrow PPDUs in the block containing the primary 1 MHz channel. */
+	op_freq_khz = channel->op_chan_freq_hz / 1000;
+	if (op_freq_khz < channel->op_bw_mhz * 500)
+		goto drop;
+	tx_freq_khz = op_freq_khz - channel->op_bw_mhz * 500 +
+		(channel->pri_1mhz_chan_idx / bw_mhz) * bw_mhz * 1000 +
+		bw_mhz * 500;
+	if (!morse_mon_regdom_allows_channel(morse_dot11ah_get_region_str(), op_freq_khz,
+					      channel->op_bw_mhz) ||
+	    !morse_mon_regdom_allows_channel(morse_dot11ah_get_region_str(), tx_freq_khz,
+					      bw_mhz))
+		goto drop;
+	if (tx.has_channel && tx.channel_mhz != tx_freq_khz / 1000)
+		goto drop;
+	if (tx.has_freq && tx.freq_khz != tx_freq_khz)
+		goto drop;
+	if (tx.has_ppdu_format &&
+	    ((tx.ppdu_format == DOT11_RT_S1G_PPDU_S1G_1M && bw_mhz != 1) ||
+	     (tx.ppdu_format == DOT11_RT_S1G_PPDU_S1G_SHORT && bw_mhz == 1) ||
+	     tx.ppdu_format > DOT11_RT_S1G_PPDU_S1G_SHORT))
+		goto drop;
+	if (tx.mcs > 10 || (tx.mcs == 10 && bw_mhz != 1))
+		goto drop;
+
+	tx_info.flags = cpu_to_le32(MORSE_TX_CONF_FLAGS_VIF_ID_SET(mors->mon_if.id));
+	if (ieee80211_is_mgmt(fc)) {
+		tx_info.tid = MORSE_QOS_TID_UP_HIGHEST;
+		tx_info.flags |= cpu_to_le32(MORSE_TX_CONF_NO_PS_BUFFER);
+	} else if (ieee80211_is_data_qos(fc)) {
+		tx_info.tid = frame[ieee80211_hdrlen(fc) - 2] & IEEE80211_QOS_CTL_TID_MASK;
+	}
+	mq = ieee80211_is_mgmt(fc) ? mors->cfg->ops->skbq_mgmt_tc_q(mors) :
+		mors->cfg->ops->skbq_tc_q_from_aci(mors, dot11_tid_to_ac(tx_info.tid));
+	if (!mq)
+		goto drop;
+	fw_skb = morse_skbq_alloc_skb(mq, frame_len);
+	if (!fw_skb)
+		goto drop;
+	memcpy(fw_skb->data, frame, frame_len);
+	morse_skbq_set_mac80211_owned(fw_skb, false);
+	tx_info.rates[0].morse_ratecode = morse_ratecode_init(
+		morse_ratecode_bw_mhz_to_bw_index(bw_mhz), 0, tx.mcs,
+		bw_mhz == 1 ? MORSE_RATE_PREAMBLE_S1G_1M : MORSE_RATE_PREAMBLE_S1G_SHORT);
+	if (tx.short_gi)
+		morse_ratecode_enable_sgi(&tx_info.rates[0].morse_ratecode);
+	tx_info.rates[0].count = tx.attempts;
+	ret = morse_skbq_skb_tx(mq, &fw_skb, &tx_info,
+		ieee80211_is_mgmt(fc) ? MORSE_SKB_CHAN_MGMT : MORSE_SKB_CHAN_DATA);
+	if (ret)
+		goto drop;
+
+	/* These counters describe firmware queue acceptance, not on-air delivery. */
+	dev->stats.tx_packets++;
+	dev->stats.tx_bytes += frame_len;
+	dev_kfree_skb(skb);
+	return NETDEV_TX_OK;
+
+drop:
+	dev->stats.tx_dropped++;
 	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
 }
@@ -441,11 +781,13 @@ int morse_mon_init(struct morse *mors)
 {
 	int err = 0;
 
-	morse_mon = alloc_netdev(0, "morse%d", NET_NAME_UNKNOWN, morse_mon_setup);
+	morse_mon = alloc_netdev(sizeof(struct morse_mon_priv), "morse%d", NET_NAME_UNKNOWN,
+			       morse_mon_setup);
 	if (!morse_mon) {
 		err = -ENOMEM;
 		goto alloc_netdev_err;
 	}
+	((struct morse_mon_priv *)netdev_priv(morse_mon))->mors = mors;
 
 	rtnl_lock();
 	err = dev_alloc_name(morse_mon, morse_mon->name);

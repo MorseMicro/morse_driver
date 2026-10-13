@@ -1245,6 +1245,23 @@ int morse_cmd_cfg_multicast_filter(struct morse *mors, struct morse_vif *mors_vi
 	return ret;
 }
 
+static void morse_channel_info_apply_vendor_set(struct morse_channel_info *stored_info,
+						struct morse_cmd_req_set_channel *drv_req)
+{
+	u32 op_chan_freq_hz = le32_to_cpu(drv_req->op_chan_freq_hz);
+
+	if (op_chan_freq_hz != MORSE_CMD_CHANNEL_FREQ_NOT_SET)
+		stored_info->op_chan_freq_hz = op_chan_freq_hz;
+	if (drv_req->pri_1mhz_chan_idx != MORSE_CMD_CHANNEL_IDX_NOT_SET)
+		stored_info->pri_1mhz_chan_idx = drv_req->pri_1mhz_chan_idx;
+	if (drv_req->op_bw_mhz != MORSE_CMD_CHANNEL_BW_NOT_SET)
+		stored_info->op_bw_mhz = drv_req->op_bw_mhz;
+	if (drv_req->pri_bw_mhz != MORSE_CMD_CHANNEL_BW_NOT_SET)
+		stored_info->pri_bw_mhz = drv_req->pri_bw_mhz;
+	stored_info->pri_bw_mhz = (stored_info->op_bw_mhz == 1) ? 1 :
+		stored_info->pri_bw_mhz;
+}
+
 static int morse_cmd_vendor_set_channel(struct morse *mors, int cmd_len,
 					struct morse_cmd_resp_set_channel *drv_resp,
 					struct morse_cmd_req_set_channel *drv_req)
@@ -1260,21 +1277,10 @@ static int morse_cmd_vendor_set_channel(struct morse *mors, int cmd_len,
 		return ret;
 
 
-	/* Store info */
-	if (op_chan_freq_hz != MORSE_CMD_CHANNEL_FREQ_NOT_SET)
-		stored_info->op_chan_freq_hz = op_chan_freq_hz;
-
-	if (drv_req->pri_1mhz_chan_idx != MORSE_CMD_CHANNEL_IDX_NOT_SET)
-		stored_info->pri_1mhz_chan_idx = drv_req->pri_1mhz_chan_idx;
-
-	if (drv_req->op_bw_mhz != MORSE_CMD_CHANNEL_BW_NOT_SET)
-		stored_info->op_bw_mhz = drv_req->op_bw_mhz;
-
-	if (drv_req->pri_bw_mhz != MORSE_CMD_CHANNEL_BW_NOT_SET)
-		stored_info->pri_bw_mhz = drv_req->pri_bw_mhz;
-
-	/* Validate that primary does not exceed operating */
-	stored_info->pri_bw_mhz = (stored_info->op_bw_mhz == 1) ? 1 : stored_info->pri_bw_mhz;
+	/* The command changes the live monitor channel, not just future defaults. */
+	morse_channel_info_apply_vendor_set(stored_info, drv_req);
+	if (mors->monitor_mode)
+		morse_channel_info_apply_vendor_set(&mors->custom_configs.channel_info, drv_req);
 
 	/* Power selected by chip - can be changed below */
 	mors->tx_power_mbm = QDBM_TO_MBM(le32_to_cpu(drv_resp->power_qdbm));

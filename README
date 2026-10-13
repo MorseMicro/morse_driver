@@ -11,3 +11,21 @@ Then build the driver:
 
     make MORSE_TRACE_PATH=`pwd` ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- KERNEL_SRC=~/linux CONFIG_WLAN_VENDOR_MORSE=m CONFIG_MORSE_SDIO=y CONFIG_MORSE_USER_ACCESS=y
 
+MM6108 monitor transmission
+---------------------------
+
+With CONFIG_MORSE_MONITOR enabled, the monitor netdev accepts raw 802.11ah
+management and data frames when the module parameter
+`enable_monitor_injection=1` is set. It defaults to off. The radio must be in
+monitor mode with a valid channel selected. This path is limited to MM6108
+SoftMAC firmware and does not add control-frame, encryption, or TX status
+support.
+
+Frames need a radiotap header followed by an 802.11ah frame. Supported TX
+controls are the S1G radiotap TLV (one spatial stream, MCS, bandwidth,
+guard interval, and PPDU format), the Morse frequency TLV, and basic
+radiotap flags, channel, rate, and retry fields. Unsupported TX controls
+and frames outside the selected operating channel or regulatory range are
+dropped. The monitor netdev TX counters reflect firmware queue acceptance,
+not confirmed over-the-air delivery.
+

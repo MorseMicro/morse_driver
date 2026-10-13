@@ -428,6 +428,7 @@ static void morse_skbq_sta_eosp(struct morse *mors, struct sk_buff *skb)
 static void __skbq_drop_pending_skb(struct morse_skbq *mq, struct sk_buff *skb)
 {
 	struct morse_buff_skb_header *hdr = (struct morse_buff_skb_header *)skb->data;
+	u8 channel = hdr->channel;
 
 	trace_skbq_drop_pending_skb(hdr->channel, le32_to_cpu(hdr->tx_info.pkt_id));
 	__morse_skbq_unlink(mq, &mq->pending, skb);
@@ -436,7 +437,7 @@ static void __skbq_drop_pending_skb(struct morse_skbq *mq, struct sk_buff *skb)
 		struct morse_vif *mors_vif = morse_wiphy_get_sta_vif(mq->mors);
 		struct wireless_dev *wdev = &mors_vif->wdev;
 
-		if (hdr->channel == MORSE_SKB_CHAN_MGMT) {
+		if (channel == MORSE_SKB_CHAN_MGMT) {
 			u32 cookie = le32_to_cpu(hdr->tx_info.pkt_id);
 
 			cfg80211_mgmt_tx_status(wdev, cookie, skb->data, skb->len,
@@ -444,9 +445,10 @@ static void __skbq_drop_pending_skb(struct morse_skbq *mq, struct sk_buff *skb)
 		}
 		dev_kfree_skb_any(skb);
 	} else {
-		morse_skbq_sta_eosp(mq->mors, skb);
-		/* Morse SKB header is already removed */
-		morse_tx_complete_or_free(mq->mors, skb, hdr->channel, false);
+		/* A monitor SKB has no mac80211 VIF or EOSP state to inspect. */
+		if (morse_skb_is_mac80211_owned(skb, channel))
+			morse_skbq_sta_eosp(mq->mors, skb);
+		morse_tx_complete_or_free(mq->mors, skb, channel, false);
 	}
 	mq->mors->debug.page_stats.tx_status_dropped++;
 }
@@ -536,10 +538,19 @@ static void morse_skbq_tx_status_process(struct morse *mors, struct sk_buff *skb
 			continue;
 		}
 
-		if (is_ps_filtered && tx_skb_is_ps_filtered(mq, tx_skb, tx_sts)) {
-			/* Has been consumed by tx_skb_is_ps_filtered */
-			spin_unlock_bh(&mq->lock);
-			continue;
+		if (is_ps_filtered) {
+			/* Monitor SKBs have no station power-save context. */
+			if (!is_fullmac_mode() &&
+			    !morse_skb_is_mac80211_owned(tx_skb, tx_sts->channel)) {
+				__skbq_drop_pending_skb(mq, tx_skb);
+				spin_unlock_bh(&mq->lock);
+				continue;
+			}
+			if (tx_skb_is_ps_filtered(mq, tx_skb, tx_sts)) {
+				/* Has been consumed by tx_skb_is_ps_filtered */
+				spin_unlock_bh(&mq->lock);
+				continue;
+			}
 		}
 
 		morse_skb_remove_hdr_after_sent_to_chip(tx_skb);
@@ -1368,7 +1379,8 @@ static void morse_skbq_tx_finish(struct morse_skbq *mq, struct sk_buff *skb,
 	/* Workaround Linux */
 	__skbq_qosnullfunc_to_nullfunc(skb);
 
-	if (mors->monitor_mode) {
+	if (mors->monitor_mode ||
+	    !morse_skb_is_mac80211_owned(skb, tx_sts->channel)) {
 		dev_kfree_skb(skb);
 	} else {
 		struct ieee80211_vif *vif;
